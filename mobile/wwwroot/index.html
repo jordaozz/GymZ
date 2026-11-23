@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <base href="./">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101826">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="Planejador de treinos, presença e evolução da academia.">
+  <title>GymZ</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="app"><main class="loading" aria-live="polite"><img src="icon-192.png" alt=""><strong>GymZ</strong><span>Preparando seu treino…</span></main></div>
+  <script src="gymz.js"></script>
+  <script src="_framework/blazor.webassembly.js" autostart="false"></script>
+  <script>
+    Blazor.start({ applicationCulture: 'pt-BR' }).catch(() => {
+      document.querySelector('.loading span').textContent = 'Falha ao abrir o GymZ. Recarregue a página.';
+    });
+  </script>
+</body>
+</html>

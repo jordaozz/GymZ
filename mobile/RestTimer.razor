@@ -1,0 +1,127 @@
+@implements IDisposable
+@inject IJSRuntime JS
+
+@if (rest != null)
+{
+    <section class="rest-timer" aria-label="Timer de descanso" data-seconds="@seconds">
+        <div class="rest-inner">
+            <div class="rest-time">
+                <div class="rest-clock" aria-live="off" aria-label="@($"{seconds} segundos restantes")">@Label(seconds)</div>
+                <span>@(seconds == 0 ? "Descanso concluído" : rest.Paused.HasValue ? "Descanso pausado" : rest.Name)</span>
+            </div>
+            <div class="rest-actions">
+                @if (seconds > 0)
+                {
+                    <button class="secondary" @onclick="Toggle">@(rest.Paused.HasValue ? "Retomar" : "Pausar")</button>
+                }
+                <button class="secondary" @onclick="AddTime" aria-label="Adicionar 15 segundos">+15 s</button>
+                <button class="icon-button" @onclick="End" aria-label="Encerrar descanso" title="Encerrar descanso">×</button>
+            </div>
+        </div>
+        <div class="screen-reader" role="status">@(seconds == 0 ? "Descanso concluído." : "")</div>
+    </section>
+}
+
+@code {
+    public sealed class RestState
+    {
+        public string Day { get; set; }
+        public string Name { get; set; }
+        public long EndsAt { get; set; }
+        public int? Paused { get; set; }
+    }
+
+    [Parameter] public DateTime Day { get; set; }
+    private RestState rest;
+    private int seconds;
+    private readonly CancellationTokenSource lifecycle = new();
+    private static long Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    private static string Label(int time) => $"{time / 60}:{time % 60:00}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var saved = await JS.InvokeAsync<string>("gymz.timer");
+            if (saved != null) rest = System.Text.Json.JsonSerializer.Deserialize<RestState>(saved);
+            Refresh();
+            if (rest != null) StateHasChanged();
+        }
+        catch (JSException) { /* The timer can still run while this screen is open. */ }
+        catch (System.Text.Json.JsonException) { rest = null; }
+        _ = Tick(lifecycle.Token);
+    }
+
+    private async Task Tick(CancellationToken cancellation)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellation))
+            {
+                var before = seconds;
+                var wasActive = rest != null;
+                Refresh();
+                if (before != seconds || wasActive != (rest != null)) await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+    }
+
+    private void Refresh()
+    {
+        if (rest != null && rest.Day != Training.Key(Day)) rest = null;
+        seconds = Remaining;
+    }
+
+    private int Remaining => rest == null ? 0 : Math.Max(0, rest.Paused ?? (int)Math.Ceiling((rest.EndsAt - Now) / 1000.0));
+
+    public async Task Start(int duration, string name)
+    {
+        if (duration <= 0) return;
+        rest = new RestState { Day = Training.Key(Day), Name = name, EndsAt = Now + duration * 1000L };
+        await Update();
+    }
+
+    private Task Toggle()
+    {
+        if (rest.Paused is { } paused)
+        {
+            rest.EndsAt = Now + paused * 1000L;
+            rest.Paused = null;
+        }
+        else rest.Paused = Remaining;
+        return Update();
+    }
+
+    private Task AddTime()
+    {
+        if (rest.Paused is { } paused) rest.Paused = paused + 15;
+        else rest.EndsAt = Math.Max(rest.EndsAt, Now) + 15000;
+        return Update();
+    }
+
+    public Task End()
+    {
+        rest = null;
+        return Update();
+    }
+
+    private async Task Update()
+    {
+        Refresh();
+        StateHasChanged();
+        try
+        {
+            await JS.InvokeVoidAsync("gymz.setTimer", rest == null ? null : System.Text.Json.JsonSerializer.Serialize(rest));
+        }
+        catch (JSException) { /* The timer stays active for the current page session. */ }
+    }
+
+    public void Dispose()
+    {
+        lifecycle.Cancel();
+        lifecycle.Dispose();
+    }
+}

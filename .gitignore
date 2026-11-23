@@ -1,0 +1,12 @@
+/GymZ.exe
+/outputs/
+/work/
+*.pdb
+/mobile/bin/
+/mobile/obj/
+gymz.json
+gymz-backup*.json
+*.sqlite3
+*.sqlite3-*
+.env
+.env.*

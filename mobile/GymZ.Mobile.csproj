@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeFrameworkVersion>10.0.15</RuntimeFrameworkVersion>
+    <RootNamespace>GymZ.Mobile</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishTrimmed>false</PublishTrimmed>
+    <BlazorWebAssemblyLoadAllGlobalizationData>true</BlazorWebAssemblyLoadAllGlobalizationData>
+    <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.15" />
+    <Compile Include="../Training.cs;../WeeklySplit.cs;../CardioPlan.cs;../ComplementaryTraining.cs;../Storage.cs;../BodyArtwork.cs;../ExerciseEquipment.cs;../CoachingText.cs" />
+    <EmbeddedResource Include="../Exercises.txt" LogicalName="Exercises.txt" />
+    <EmbeddedResource Include="../assets/exercise-art/Attribution.txt" LogicalName="ExerciseAttribution.txt" />
+    <Content Include="../assets/exercise-art/*.png;../assets/exercise-art/LICENSE.txt;../assets/exercise-art/Attribution.txt">
+      <Link>wwwroot/exercise-art/%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <ServiceWorker Include="wwwroot/service-worker.js" PublishedContent="wwwroot/service-worker.js" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,31 @@
+<svg class="body-diagram" viewBox="0 0 204 380" role="group" aria-label="@(Rear ? "Mapa muscular, costas" : "Mapa muscular, frente")">
+    <path class="body-outline" d="@BodyArtwork.Silhouette"></path>
+    @foreach (var area in Rear ? BodyArtwork.Back : BodyArtwork.Front)
+    {
+        <g class="@RegionClass(area.Key)" role="button" tabindex="0" aria-label="@Catalog.Names[area.Key]" aria-pressed="@(Selection == area.Key ? "true" : "false")"
+           @onclick="() => Choose.InvokeAsync(area.Key)" @onkeydown="args => Key(args, area.Key)">
+            <title>@Catalog.Names[area.Key]</title>
+            @foreach (var path in area.Value)
+            {
+                <path d="@path"></path>
+                @if (area.Key != "core" && area.Key != "back")
+                {
+                    <path d="@path" transform="translate(204, 0) scale(-1, 1)"></path>
+                }
+            }
+        </g>
+    }
+    <path class="body-lines" d="@(Rear ? BodyArtwork.BackLines : BodyArtwork.FrontLines)"></path>
+</svg>
+
+@code {
+    [Parameter] public bool Rear { get; set; }
+    [Parameter] public string Selection { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, int> Scores { get; set; }
+    [Parameter] public EventCallback<string> Choose { get; set; }
+
+    private string RegionClass(string key) =>
+        "body-region " + (Scores == null ? (Selection == key ? "body-active" : "") : "coverage-" + Scores[key]);
+    private Task Key(KeyboardEventArgs args, string key) =>
+        args.Key is "Enter" or " " ? Choose.InvokeAsync(key) : Task.CompletedTask;
+}
