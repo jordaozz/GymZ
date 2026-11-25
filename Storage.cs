@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
+using System.Xml;
 
 namespace GymZ
 {
@@ -38,12 +39,11 @@ namespace GymZ
             Write(path, data, true);
         }
 
-        public string Backup(string parent, GymData data, string executable)
+        public string Backup(string parent, GymData data)
         {
             string folder = Path.Combine(parent, "GymZ-backup-" + DateTime.Now.ToString("yyyy-MM-dd-HHmmss-fff", CultureInfo.InvariantCulture));
             Directory.CreateDirectory(folder);
             Write(Path.Combine(folder, BackupName), data, false);
-            File.Copy(executable, Path.Combine(folder, "GymZ.exe"));
             return folder;
         }
 
@@ -60,7 +60,8 @@ namespace GymZ
         private static DataContractJsonSerializer Serializer()
         {
             return new DataContractJsonSerializer(typeof(GymData), new DataContractJsonSerializerSettings {
-                DateTimeFormat = new DateTimeFormat("yyyy-MM-dd", CultureInfo.InvariantCulture), UseSimpleDictionaryFormat = true
+                DateTimeFormat = new DateTimeFormat("yyyy-MM-dd", CultureInfo.InvariantCulture), UseSimpleDictionaryFormat = true,
+                MaxItemsInObjectGraph = 2000000
             });
         }
 
@@ -105,13 +106,18 @@ namespace GymZ
                 }
             }
             catch (SerializationException ex) { throw new InvalidDataException("O arquivo não contém dados válidos do GymZ.", ex); }
+            catch (XmlException ex) { throw new InvalidDataException("A estrutura do arquivo de dados é inválida.", ex); }
             catch (FormatException ex) { throw new InvalidDataException("O arquivo contém uma data inválida.", ex); }
         }
 
         private static GymData ReadBackup(Stream stream)
         {
             if (stream.Length > 32 * 1024 * 1024) throw new InvalidDataException("O arquivo de dados excede 32 MB.");
-            return Validate((GymData)Serializer().ReadObject(stream));
+            var quotas = new XmlDictionaryReaderQuotas();
+            XmlDictionaryReaderQuotas.Max.CopyTo(quotas);
+            quotas.MaxDepth = 32;
+            using (var reader = JsonReaderWriterFactory.CreateJsonReader(stream, quotas))
+                return Validate((GymData)Serializer().ReadObject(reader));
         }
 
         private static GymData Validate(GymData data)
@@ -138,7 +144,10 @@ namespace GymZ
                 if (profile.Name == null) profile.Name = "";
                 if (profile.FocusMode == null) profile.FocusMode = "balanced";
                 if ((profile.Split != null && !Training.SplitModes.ContainsKey(profile.Split)) ||
-                    (profile.DayThemes != null && (profile.DayThemes.Length != 7 || !profile.DayThemes.All(Training.IsDayTheme))))
+                    (profile.DayThemes != null && (profile.DayThemes.Length != 7 || !profile.DayThemes.All(Training.IsDayTheme))) ||
+                    (profile.DayRoutines != null && (profile.DayRoutines.Length != 7 || profile.DayRoutines.Any(routine =>
+                        routine == null || routine.Groups == null || !routine.Groups.All(Catalog.Groups.Contains) ||
+                        routine.Groups.Length != routine.Groups.Distinct().Count()))))
                     throw new InvalidDataException("O arquivo contém uma divisão semanal inválida.");
                 if (profile.Days == null || profile.Days.Length == 0 || !profile.Days.SequenceEqual(profile.Days.Distinct().OrderBy(d => d)) ||
                     profile.Days.Any(d => d < 0 || d > 6) || profile.Goal == null || !Catalog.Goals.ContainsKey(profile.Goal) ||
@@ -147,6 +156,8 @@ namespace GymZ
                     profile.Name.Length > 48 || profile.Name.Any(char.IsControl) || profile.Minutes < 20 || profile.Minutes > 90 ||
                     profile.Level < 0 || profile.Level > 1 || profile.Weight < 0 || profile.Weight > 600 || profile.Height < 0 || profile.Height > 300)
                     throw new InvalidDataException("O arquivo contém preferências de treino inválidas.");
+                if (Training.EmptyManualDay(profile).HasValue)
+                    throw new InvalidDataException("O arquivo contém um treino manual sem regiões selecionadas.");
             }
             data.Profiles = data.Profiles.OrderBy(p => p.Start).ToList();
             if (data.FirstAccess == default(DateTime)) data.FirstAccess = data.Profiles[0].Start;
@@ -169,6 +180,8 @@ namespace GymZ
                     throw new InvalidDataException("O arquivo contém uma reposição inválida.");
                 if (session.ComplementFor == null) session.ComplementFor = "";
                 if (session.ComplementGroup == null) session.ComplementGroup = "";
+                if (session.Notes == null) session.Notes = "";
+                if (!Training.ValidNotes(session.Notes)) throw new InvalidDataException("O arquivo contém uma observação de treino inválida.");
                 if (session.Complement && (!session.Extra || session.Scheduled || session.MakeupFor != "" ||
                     (session.ComplementFor != "" && Training.Date(session.ComplementFor) >= date) ||
                     (session.ComplementGroup != "" && !Catalog.Groups.Contains(session.ComplementGroup))))

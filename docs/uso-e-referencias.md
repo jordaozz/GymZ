@@ -7,7 +7,7 @@
 3. O primeiro exercício concluído registra presença automaticamente. A lista dá lugar a **Treino concluído** quando todos os exercícios forem marcados ou quando você clicar em **Finalizar treino**. A conclusão dura até a mudança de data. Exercícios pulados aparecem no relatório.
 4. Em dias de **Descanso**, **Montar treino extra** cria uma sessão leve considerando os treinos recentes, regiões pendentes e sessões próximas. Em **Presença**, **Escolher dia para repor** continua disponível para agendar uma reposição formal. Uma reposição realizada cumpre o compromisso no dia original e aparece na data em que aconteceu.
 5. Em **Mapa muscular**, clique na região da frente ou das costas. A biblioteca mostra miniaturas, músculos auxiliares, a execução e o histórico por exercício. Os guias de máquinas incluem um esquema e links para fotos oficiais. Os dois modelos de leg press aparecem como alternativas em **Trocar**.
-6. Em **Presença**, use **Treinei** ou **Faltei** no próprio dia. As outras datas ficam disponíveis para consulta no calendário. A contagem semanal e mensal começa no primeiro acesso. Em **Relatórios**, confira exercícios feitos e pendentes, séries, dias de trabalho direto e cores de cobertura. Também é possível exportar a semana em CSV.
+6. Em **Presença**, escolha um dia da semana atual e use **Treinei** ou **Faltei**. Em **Ver treino**, registre as séries, exercícios feitos e uma observação opcional. Você pode preencher desde o primeiro acesso até hoje. A semana anterior fecha na segunda-feira, e as datas futuras ficam disponíveis para planejar. Em **Relatórios**, confira exercícios feitos e pendentes, séries, dias de trabalho direto e cores de cobertura. Também é possível exportar a semana em CSV.
 
 **Trocar** ranqueia primeiro movimentos equivalentes que cabem no perfil. Trocas ajustam a preferência para as próximas semanas. Use **Trocar só neste treino** quando o aparelho estiver ocupado ou **Evitar este exercício nos próximos planos** para removê-lo das sugestões. O GymZ mantém os movimentos principais e pode variar um exercício acessório a cada duas semanas. Em **Visão geral → Como o treino foi montado**, confira a distribuição da semana e as próximas datas para cada região.
 
@@ -23,13 +23,14 @@ O cardio aparece depois da musculação nos blocos de saúde, emagrecimento e re
 
 Em **Configurações**, altere tema, cor de destaque, contraste ou tamanho do texto. Use `Tab` para mover o foco, `Enter` ou `Espaço` para acionar controles e `F9` para Configurações. O mapa também oferece botões com os nomes das regiões.
 
-**Salvar backup** cria uma pasta com `GymZ.exe` e `gymz-backup.json`. Guarde essa pasta. Para instalar os registros em outro computador, abra o executável e use **Configurações → Restaurar backup**. A restauração pede confirmação e salva uma cópia da base atual antes da troca.
+**Salvar backup** guarda o perfil, as preferências e o histórico no arquivo `gymz-backup.json`. Para levar os registros a outro aparelho, abra a versão do GymZ instalada nele e use **Configurações → Restaurar backup**. A restauração pede confirmação e salva uma cópia da base atual antes da troca.
 
 O arquivo em uso fica em `%LOCALAPPDATA%\GymZ\gymz.json`. Backups, dados pessoais e capturas de verificação ficam fora do código versionado. As atualizações substituem o executável e usam a mesma pasta de dados.
 
 ## Referências
 
 - Calendário de frequência e mapa de cobertura muscular. [Hevy](https://www.hevyapp.com/features/muscle-group-workout-chart/)
+- Registro de treinos por data, observações e valores anteriores de séries. [FitNotes](https://www.fitnotesapp.com/workout_tracking/) · [Hevy](https://help.hevyapp.com/hc/en-us/articles/36011896355479-How-to-Use-Previous-Workout-Values-to-Improve-Performance-in-Hevy)
 - Rotina por objetivo e equipamento, com substituição de exercícios. [Fitbod](https://help.fitbod.me/hc/en-us/articles/360006335593-Editing-Workouts-in-Fitbod)
 - Organização do catálogo por músculos. [JEFIT](https://www.jefit.com/features/exercise-library)
 - Diretrizes de treino de força para adultos saudáveis e técnica de execução. [ACSM](https://acsm.org/resistance-training-guidelines-update-2026/), [ACE](https://www.acefitness.org/resources/everyone/exercise-library/) e [CDC](https://www.cdc.gov/physical-activity-basics/guidelines/adults.html)

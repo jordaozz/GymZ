@@ -32,11 +32,12 @@ namespace GymZ
                     CheckFirstUse(output, testFolder + "-novo", first);
                     CheckWorkoutFlow(output, testFolder + "-treino", first);
                     CheckRecordingDates(first);
+                    CheckFuturePlanEditing(first);
                     CheckComplement(first);
                     CheckCardioAndEquipment(first);
                     results.Add("Primeiro acesso: tela de perfil sem treino ou agenda padrão, cadastro de nome, medidas, dias e plano personalizado.");
                     results.Add("Treino de hoje: abre direto na lista, guia na mesma janela, retorno à lista, finalização parcial, conclusão automática e virada do dia.");
-                    results.Add("Datas e descanso: bloqueio de dias passados e futuros, contagem desde o acesso e sessão extra leve com ajuste ao próximo treino.");
+                    results.Add("Datas e descanso: registros retroativos na semana atual, semanas fechadas, bloqueio de datas futuras e sessões extras.");
                     results.Add("Equipamentos e cardio: musculação filtrada, bicicleta/esteira/transport e cardio sem aparelho, duração, ordem e opção sem cardio automático.");
                     var data = GymData.Create(first);
                     using (var storage = new Storage(testFolder))
@@ -45,6 +46,8 @@ namespace GymZ
                         CaptureIllustrations(output);
                         CheckPreferences(first);
                         CheckWeeklySplit(first);
+                        CheckEditedWeeklySplit(first);
+                        CheckManualWeeklySplit(first);
                         results.Add("Catálogo: " + Catalog.All.Count + " exercícios com imagens, equipamento, instruções e cobertura dos 12 grupos.");
                         var training = new Training(data, first);
                         training.ChangeProfile(new Profile { Name = "Sam", Weight = 75, Height = 175 });
@@ -119,8 +122,8 @@ namespace GymZ
                         Require(reopened.Sessions[Training.Key(first)].Items[0].Load == 12 && reopened.Preferences.Accent == "teal" &&
                             reopened.Profiles.Last().Profile.Weight == 72.5m && reopened.Sessions[Training.Key(first.AddDays(3))].Items.Last().Efforts[0].Kilograms == 12.5m,
                             "Persistência de cargas distintas e leitura local");
-                        var package = storage.Backup(output, reopened, Assembly.GetExecutingAssembly().Location);
-                        Require(File.Exists(Path.Combine(package, "GymZ.exe")), "Backup inclui o executável");
+                        var package = storage.Backup(output, reopened);
+                        Require(Directory.GetFiles(package).Select(Path.GetFileName).SequenceEqual(new[] { Storage.BackupName }), "Backup contém somente o arquivo de dados");
                         var backup = Storage.Read(Path.Combine(package, Storage.BackupName));
                         var previousFile = storage.Restore(GymData.Create(first), backup);
                         Require(File.Exists(previousFile) && storage.Open(training.Today).Preferences.Contrast, "Restauração preserva a cópia anterior");
@@ -130,6 +133,15 @@ namespace GymZ
                         try { Storage.Read(invalid); }
                         catch (InvalidDataException) { rejected = true; }
                         Require(rejected && storage.Open(training.Today).Sessions.Count > 0, "Backup inválido recusado sem perda de dados");
+                        string packedBackup = Storage.Pack(backup);
+                        string deep = packedBackup.Substring(0, packedBackup.Length - 1) + ",\"Desconhecido\":" + new string('[', 40) + "null" + new string(']', 40) + "}";
+                        File.WriteAllText(invalid, deep);
+                        rejected = false;
+                        try { Storage.Read(invalid); }
+                        catch (InvalidDataException) { rejected = true; }
+                        Require(rejected && storage.Open(training.Today).Sessions.Count > 0, "Backup com aninhamento excessivo recusado sem perda de dados");
+                        Require(Training.CsvCell("  =1+1") == "\"'  =1+1\"" && Training.CsvCell("Peito \"A\"") == "\"Peito \"\"A\"\"\"",
+                            "Relatório protege células de texto e conserva aspas na exportação");
                         results.Add("Dados: persistência, backup portátil, restauração e recusa de arquivo inválido.");
 
                         var gym = new GymApp(storage, first.AddDays(6), false);
@@ -200,13 +212,23 @@ namespace GymZ
                         Capture(gym.window, Path.Combine(output, "Acessibilidade.png"));
                         gym.Go(Section.Profile);
                         Capture(gym.window, Path.Combine(output, "Perfil.png"));
-                        var split = Descendants(gym.content).OfType<ComboBox>().Single(box =>
-                            ((TextBlock)AutomationProperties.GetLabeledBy(box)).Text == "Divisão da semana");
-                        split.SelectedItem = split.Items.Cast<Option>().Single(option => option.Key == "groups");
+                        SelectChoice(gym.content, "Divisão da semana", "groups");
                         Flush(gym.window);
-                        Require(Descendants(gym.content).OfType<ComboBox>().Count(box => box.IsVisible &&
-                            box.Items.Cast<Option>().Any(option => option.Key == "chest-biceps")) == gym.training.At(gym.training.Today).Days.Length,
+                        Require(Descendants(gym.content).OfType<Button>().Count(button => button.IsVisible &&
+                            AutomationProperties.GetName(button).StartsWith("Escolher regiões manualmente · ")) ==
+                            gym.training.At(gym.training.Today).Days.Length,
                             "A divisão por grupos mostra edição só para os dias selecionados");
+                        var firstDay = Training.DayNames[gym.training.At(gym.training.Today).Days[0]];
+                        var editRegions = Descendants(gym.content).OfType<Button>().Single(button =>
+                            AutomationProperties.GetName(button) == "Escolher regiões manualmente · " + firstDay);
+                        InspectDialog(gym, () => Invoke(editRegions), Path.Combine(output, "Seletor-de-regioes.png"), dialog => {
+                            var regions = Descendants(dialog).OfType<System.Windows.Controls.Primitives.ToggleButton>().Where(chip => chip.Tag is string).ToArray();
+                            Require(regions.Length == Catalog.Groups.Length, "Modo manual abre uma tela com botões para todas as regiões");
+                            regions.Single(chip => (string)chip.Tag == "chest").IsChecked = true;
+                            regions.Single(chip => (string)chip.Tag == "shoulders").IsChecked = true;
+                            Invoke(FindButton(dialog, "Confirmar regiões"));
+                        });
+                        Require(Descendants(gym.content).OfType<TextBlock>().Any(text => text.Text == "Peito, Ombros"), "Confirmar retorna ao perfil com o resumo do dia");
                         gym.window.Close();
                         app.Shutdown();
                         results.Add("Interface: 7 telas, Voltar e Início, mês atual, guias dos exercícios, histórico, relatório visual e opções de acessibilidade.");
@@ -345,6 +367,130 @@ namespace GymZ
                     "Dois dias consecutivos alternam superiores e pernas");
             }
 
+            private static void CheckEditedWeeklySplit(DateTime monday)
+            {
+                var days = new[] { 0, 1, 2, 3 };
+                var thursday = monday.AddDays(3);
+                var training = new Training(GymData.Create(monday), monday);
+                training.ChangeProfile(new Profile {
+                    Days = days, Split = "groups", DayThemes = new[] { "push", "legs", "pull", "", "", "", "" }
+                });
+                var oldThursday = training.Get(thursday);
+                Require(oldThursday.Title == "Ombros e abdômen", "Quinta começa com a sugestão original de ombros");
+                training.Data.Sessions[Training.Key(thursday)] = oldThursday;
+
+                var completed = training.Save(monday);
+                completed.Items[0].Done = true;
+                var shoulder = training.Prescribe(Catalog.ById["cable-lateral"], training.At(monday), false);
+                shoulder.Done = true;
+                shoulder.Load = 12m;
+                completed.Items.Add(shoulder);
+                training.Finish(monday);
+                int expected = training.Report(monday).Coverage["shoulders"].Expected;
+                int pending = training.PendingExercises(monday, completed).Count;
+
+                training.ChangeProfile(new Profile {
+                    Days = days, Split = "groups", DayThemes = new[] { "push-shoulders", "legs", "pull", "", "", "", "" }
+                });
+                var restored = new Training(Storage.Unpack(System.Text.Encoding.UTF8.GetBytes(Storage.Pack(training.Data))), monday);
+                var saved = restored.Get(monday);
+                Require(saved.Finalized && saved.Title == "Peito e tríceps" && saved.Items.Any(item => item.Id == shoulder.Id && item.Done && item.Load == 12m) &&
+                    restored.PendingExercises(monday, saved).Count == pending && restored.Report(monday).Coverage["shoulders"].Expected == expected,
+                    "Mudar a divisão preserva a ficha, as cargas e o relatório do treino finalizado");
+                Require(restored.Get(thursday).Title == "Abdômen e estabilidade" &&
+                    restored.Get(thursday).Items.All(item => Catalog.ById[item.Id].Group != "shoulders") &&
+                    restored.Get(monday.AddDays(7)).Items.Any(item => Catalog.ById[item.Id].Group == "shoulders") &&
+                    restored.Get(thursday.AddDays(7)).Title == "Abdômen e estabilidade",
+                    "A sugestão de quinta se recalcula e o foco escolhido na segunda permanece após reabrir o app");
+
+                restored.ChangeProfile(new Profile {
+                    Days = days, Split = "groups", DayThemes = new[] { "push-shoulders", "legs", "pull", "shoulders", "", "", "" }
+                });
+                Require(restored.Get(thursday).Title == "Ombros e abdômen", "A escolha manual de ombros na quinta tem prioridade sobre a sugestão");
+            }
+
+            private static void CheckManualWeeklySplit(DateTime monday)
+            {
+                var training = new Training(GymData.Create(monday), monday);
+                training.ChangeProfile(new Profile {
+                    Split = "groups", DayThemes = new[] { "push-shoulders", "legs", "", "", "", "", "" }
+                });
+                var migrated = Training.EditDayRoutines(training.At(monday));
+                Require(migrated[0].Manual && migrated[0].Groups.SequenceEqual(new[] { "chest", "shoulders", "triceps" }) &&
+                    migrated[1].Groups.Contains("glutes") && !migrated[4].Manual, "Combinações antigas preenchem as regiões correspondentes");
+
+                var plan = new Profile { Split = "groups", Gear = "machines-dumbbell", Cardio = "none", Minutes = 25, Level = 1 };
+                plan.DayRoutines = Training.EditDayRoutines(plan);
+                var reinforcement = new[] { "chest", "shoulders", "core", "glutes" };
+                plan.DayRoutines[4].Manual = true;
+                RequireRejected(() => training.ChangeProfile(plan), "Dia manual ativo precisa de uma região");
+                plan.DayRoutines[4].Groups = reinforcement;
+                training.ChangeProfile(plan);
+                var friday = monday.AddDays(4);
+                Require(training.Get(monday).Items.Any(item => Catalog.ById[item.Id].Group == "chest"),
+                    "Reforço planejado na sexta não tira peito da segunda automática");
+                Require(new HashSet<string>(training.Get(friday).Items.Select(item => Catalog.ById[item.Id].Group)).SetEquals(reinforcement),
+                    "Sexta de reforço reúne grupos de pernas e superiores escolhidos manualmente");
+
+                var copy = Storage.Unpack(System.Text.Encoding.UTF8.GetBytes(Storage.Pack(training.Data)));
+                var reopened = new Training(copy, monday);
+                var restored = Training.EditDayRoutines(reopened.At(monday));
+                Require(restored[4].Manual && restored[4].Groups.SequenceEqual(reinforcement) && !restored[1].Manual,
+                    "As escolhas por dia são restauradas junto com os dias automáticos");
+                Require(new HashSet<string>(reopened.Get(friday.AddDays(7)).Items.Select(item => Catalog.ById[item.Id].Group)).SetEquals(reinforcement),
+                    "O reforço escolhido é mantido nas semanas seguintes");
+
+                var session = reopened.Get(friday);
+                var original = session.Items.First(item => Catalog.ById[item.Id].Group == "chest");
+                var choices = reopened.SwapChoices(friday, session, original, true).ToList();
+                Require(choices[0].Group == "chest" && choices.SkipWhile(choice => choice.Group == "chest").All(choice => choice.Group != "chest") &&
+                    new HashSet<string>(choices.Select(choice => choice.Group)).SetEquals(reinforcement) && !choices.Any(choice => session.Items.Any(item => item.Id == choice.Id)),
+                    "Troca mostra o mesmo músculo primeiro, seguido apenas pelas demais regiões da ficha");
+                Require(reopened.SwapChoices(friday, session, original, false).Any(choice => choice.Group == "back"),
+                    "A biblioteca completa continua disponível no seletor visual");
+            }
+
+            private static void CheckFuturePlanEditing(DateTime monday)
+            {
+                var training = new Training(GymData.Create(monday), monday);
+                var preferences = new Profile { Gear = "machines-dumbbell", Cardio = "none" };
+                training.ChangeProfile(preferences);
+                var tuesday = monday.AddDays(1);
+                var thursday = monday.AddDays(3);
+                var friday = monday.AddDays(4);
+                var planned = training.Get(tuesday);
+                var original = planned.Items[0];
+                var replacement = training.SwapChoices(tuesday, planned, original, true).First(choice => choice.Group == "quads");
+                training.EditPlanExercise(tuesday, original.Id, replacement, temporary: true);
+                training.RemovePlanExercise(tuesday, replacement.Id);
+                training.EditPlanExercise(tuesday, null, replacement);
+                RequireRejected(() => training.EditPlanExercise(tuesday, null, replacement), "O plano futuro não aceita exercícios duplicados");
+                RequireRejected(() => training.Save(tuesday), "Alterar a ficha não libera o registro futuro de exercícios");
+                RequireRejected(() => training.Attendance(tuesday, "present"), "Alterar a ficha não libera presença futura");
+                RequireRejected(() => training.Finish(tuesday), "Alterar a ficha não libera finalização futura");
+                RequireRejected(() => training.RecordPerformance(tuesday, 0, new List<LiftSet>(), 0, null, true), "Alterar a ficha não libera cargas futuras");
+                RequireRejected(() => training.EditPlanExercise(monday.AddDays(2), null, replacement), "Dia futuro de descanso não recebe ficha regular");
+                training.ChoosePlanRegions(friday, new[] { "chest", "shoulders", "core", "glutes" });
+                Require(training.Get(friday).Title == "Peito, ombros, abdômen e glúteos" &&
+                    new HashSet<string>(Training.PlanRegions(training.Get(friday))).SetEquals(new[] { "chest", "shoulders", "core", "glutes" }),
+                    "Confirmar regiões na data futura monta uma ficha personalizada na hora");
+                training.RestoreProfilePlan(friday);
+                Require(!training.Get(friday).CustomizedPlan && training.Get(friday).Title == "Ombros e abdômen" &&
+                    !Training.Present(training.Get(friday)), "Voltar ao perfil restaura a ficha, sem alterar a presença");
+
+                var changed = new Profile { Gear = preferences.Gear, Cardio = preferences.Cardio, Split = "groups" };
+                changed.DayRoutines = Training.EditDayRoutines(changed);
+                changed.DayRoutines[3] = new DayRoutine { Manual = true, Groups = new[] { "back", "biceps", "core" } };
+                training.ChangeProfile(changed);
+                Require(training.Get(tuesday).CustomizedPlan && training.Get(tuesday).Items.Any(item => item.Id == replacement.Id) &&
+                    Training.PlanRegions(training.Get(thursday)).Contains("core"), "Alterar a divisão de quinta preserva a ficha personalizada de terça");
+                var restored = new Training(Storage.Unpack(System.Text.Encoding.UTF8.GetBytes(Storage.Pack(training.Data))), tuesday);
+                Require(restored.Get(tuesday).CustomizedPlan && restored.Get(tuesday).Items.Any(item => item.Id == replacement.Id) &&
+                    !Training.Present(restored.Get(tuesday)), "A ficha antecipada é mantida ao reabrir no dia, sem presença ou desempenho criado");
+                restored.Attendance(tuesday, "present");
+                Require(Training.Present(restored.Get(tuesday)), "No dia previsto, o registro normal continua disponível");
+            }
+
             private static void CheckRecordingDates(DateTime monday)
             {
                 var wednesday = monday.AddDays(2);
@@ -360,12 +506,27 @@ namespace GymZ
                 RequireRejected(() => training.RecordPerformance(thursday, 0, new List<LiftSet>(), 0, null, true), "Bloqueia desempenho futuro");
                 training.Attendance(wednesday, "present");
                 training.Today = thursday.AddDays(1);
-                RequireRejected(() => training.Attendance(thursday, "present"), "Bloqueia novo registro em dia anterior sem presença");
-                RequireRejected(() => training.Save(thursday), "Bloqueia preenchimento histórico de exercício");
                 var week = training.Report(monday);
                 var month = training.ReportMonth(monday);
-                Require(week.Due == 2 && week.Attended == 1 && week.Unmarked == 1 && month.Due == week.Due && month.Attended == week.Attended,
+                Require(week.Due == 2 && week.Attended == 1 && week.Unmarked == 1 && month.Due == week.Due && month.Attended == week.Attended &&
+                    training.PendingAttendance().SequenceEqual(new[] { thursday }),
                     "Relatórios mensal e semanal contam apenas a partir da quarta-feira");
+                training.Attendance(thursday, "present");
+                training.RecordPerformance(thursday, 0, new List<LiftSet> {
+                    new LiftSet { RepsOrSeconds = 10, Kilograms = 12.5m }
+                }, 0, null, true);
+                training.Finish(thursday);
+                training.SaveNotes(thursday, "  Ajustei a ficha ao equipamento disponível.\r\nTudo registrado depois.  ");
+                Require(training.Report(monday).Attended == 2 && training.ReportMonth(monday).Attended == 2 && !training.PendingAttendance().Any(),
+                    "Presença retroativa atualiza as duas frequências e libera a pendência");
+                var restored = Storage.Unpack(System.Text.Encoding.UTF8.GetBytes(Storage.Pack(training.Data)));
+                var saved = new Training(restored, monday.AddDays(7));
+                Require(saved.Get(thursday).Notes == "Ajustei a ficha ao equipamento disponível.\nTudo registrado depois." &&
+                    saved.Get(thursday).Items[0].Load == 12.5m && saved.Get(thursday).Finalized && !saved.CanRecordOn(thursday),
+                    "O fechamento de segunda preserva notas, cargas e exercícios da semana passada");
+                RequireRejected(() => saved.Attendance(thursday, ""), "Bloqueia alterações de presença na semana fechada");
+                RequireRejected(() => saved.SaveNotes(thursday, "Novo texto"), "Bloqueia alterações de observação na semana fechada");
+                RequireRejected(() => saved.Reopen(thursday), "Bloqueia reabrir um treino de semana fechada");
             }
 
             private static void CheckComplement(DateTime monday)
@@ -422,6 +583,13 @@ namespace GymZ
                     Flush(gym.window);
                     Require(gym.openGuide == null && gym.section == Section.Workouts && listOffset > 0 && gym.scroll.VerticalOffset == 0, "Voltar leva ao início da aba Treinos");
 
+                    InspectDialog(gym, () => gym.EditExerciseList(date, 0), Path.Combine(output, "Troca-visual.png"), dialog => {
+                        var cards = Descendants(dialog).OfType<Button>().Where(button => AutomationProperties.GetName(button).StartsWith("Escolher ")).ToArray();
+                        Require(cards.Length > 1 && cards.All(button => Descendants(button).OfType<Image>().Any()) &&
+                            Descendants(dialog).OfType<TextBlock>().Any(text => text.Text == "Mesma região · Peito"),
+                            "Troca do Windows mostra opções clicáveis com imagens e região");
+                    });
+
                     ApplyCheck(Descendants(gym.content).OfType<CheckBox>().First());
                     Require(Training.Present(gym.training.Get(date)) && gym.training.Report(date).Attended == 1, "Primeiro exercício já registra presença");
                     Invoke(FindButton(gym.headerActions, "Finalizar treino"));
@@ -456,13 +624,37 @@ namespace GymZ
                         !Descendants(gym.content).OfType<TextBlock>().Any(t => t.Text == "Treino concluído"), "Virada do dia mostra a nova lista");
                     gym.SelectDay(date.AddDays(3), Section.Workouts);
                     Flush(gym.window);
-                    Require(!Descendants(gym.content).OfType<Button>().Any() && !Descendants(gym.content).OfType<CheckBox>().Any(), "Prévia futura bloqueia todos os controles de treino");
+                    var futureActions = Descendants(gym.content).OfType<Button>().Select(button => button.Content as string).ToArray();
+                    Require(futureActions.Contains("Trocar") && futureActions.Contains("Adicionar exercício") && futureActions.Contains("Escolher regiões") &&
+                        !futureActions.Contains("Registrar carga") && !futureActions.Contains("Finalizar treino") &&
+                        !Descendants(gym.content).OfType<CheckBox>().Any(), "Ficha futura permite editar o plano e mantém o desempenho bloqueado");
+                    var pickerButton = FindButton(gym.content, "Escolher regiões");
+                    var pickerImage = Path.Combine(output, "Regioes-da-ficha.png");
+                    InspectDialog(gym, () => pickerButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)), pickerImage, dialog => {
+                        var regions = Descendants(dialog).OfType<System.Windows.Controls.Primitives.ToggleButton>().Where(chip => chip.Tag is string);
+                        foreach (var chip in regions) chip.IsChecked = (string)chip.Tag == "glutes" || (string)chip.Tag == "core";
+                        Capture(dialog, pickerImage);
+                        Invoke(FindButton(dialog, "Confirmar regiões"));
+                    });
+                    Require(gym.training.Get(date.AddDays(3)).Title == "Abdômen e glúteos" &&
+                        !Training.Present(gym.training.Get(date.AddDays(3))), "Confirmar no Windows gera a ficha futura sem lançar presença");
                     Capture(gym.window, Path.Combine(output, "Treino-previsto.png"));
                     gym.Go(Section.Workouts);
                     gym.RefreshDate(date.AddDays(2));
                     Flush(gym.window);
                     Require(gym.training.Get(date.AddDays(2)).Title == "Descanso" && !Descendants(gym.content).OfType<CheckBox>().Any(), "Quarta abre em descanso sem lista");
                     Capture(gym.window, Path.Combine(output, "Descanso.png"));
+                    gym.SelectDay(date.AddDays(1), Section.Attendance);
+                    Flush(gym.window);
+                    Invoke(FindButton(gym.content, "Treinei"));
+                    Require(Training.Present(gym.training.Get(date.AddDays(1))), "Presença de terça pode ser registrada na quarta pela interface");
+                    gym.SelectDay(date.AddDays(1), Section.Workouts);
+                    Flush(gym.window);
+                    Require(Descendants(gym.content).OfType<Button>().Any(button => (button.Content as string) == "Registrar carga"),
+                        "Comandos de carga ficam disponíveis na ficha passada da semana atual");
+                    Capture(gym.window, Path.Combine(output, "Registro-retroativo.png"));
+                    gym.Go(Section.Workouts);
+                    Flush(gym.window);
                     Invoke(FindButton(gym.content, "Montar treino extra"));
                     Require(gym.training.Get(date.AddDays(2)).Complement, "Extra simples depende de ação do usuário");
                     Capture(gym.window, Path.Combine(output, "Treino-extra.png"));
@@ -498,6 +690,22 @@ namespace GymZ
                 Require(!mixed.Get(date).Items.Any(m => Catalog.ById[m.Id].Type == 'A'), "O foco em força não força cardio automático");
                 mixed.ChangeProfile(new Profile { Goal = "weight", Gear = "machines", Cardio = "none" });
                 Require(!mixed.Get(date).Items.Any(m => Catalog.ById[m.Id].Type == 'A'), "Modo Sem cardio automático prevalece em qualquer objetivo");
+
+                var gymOnly = new Profile { Goal = "recomp", Focus = "glutes", Gear = "machines-dumbbell", Cardio = "none" };
+                mixed.ChangeProfile(gymOnly);
+                var excluded = new[] { "bridge", "db-bridge", "floor-press", "pushup", "band-squat", "chair-squat", "goblet", "sumo" };
+                Require(excluded.All(id => !mixed.Eligible(Catalog.ById[id], gymOnly)), "A opção de academia exclui solo, elásticos e agachamentos sem máquina");
+                var upcoming = gymOnly.Days.Select(offset => mixed.Get(date.AddDays(offset))).SelectMany(session => session.Items).ToList();
+                Require(upcoming.All(item => !excluded.Contains(item.Id) && Catalog.ById[item.Id].Type != 'A') &&
+                    upcoming.Any(item => item.Id == "abductor" || item.Id == "kickback") && upcoming.Any(item => item.Id == "incline-db"),
+                    "Musculação com máquinas, polias e halteres mantém opções para glúteos e superiores sem cardio automático");
+                var choices = mixed.Alternatives(date, mixed.Get(date), mixed.Prescribe(Catalog.ById["db-bridge"], gymOnly, false));
+                Require(choices.Any(exercise => exercise.Id == "kickback" || exercise.Id == "abductor") && choices.All(exercise => !excluded.Contains(exercise.Id)),
+                    "As trocas para glúteos respeitam o filtro de equipamento");
+                mixed.Today = date.AddDays(2);
+                var extra = mixed.EnableExtra(mixed.Today);
+                Require(extra.Items.Count > 0 && extra.Items.All(item => !excluded.Contains(item.Id) && Catalog.ById[item.Id].Type != 'A'),
+                    "Treino extra respeita o equipamento e o cardio definidos no perfil");
             }
 
             private static void ApplyCheck(CheckBox checkbox)
@@ -528,8 +736,7 @@ namespace GymZ
                     FieldByName<TextBox>(gym.content, "Como você quer ser chamado? (opcional)").Text = "sam";
                     FieldByName<TextBox>(gym.content, "Peso atual (kg)").Text = "79,5";
                     FieldByName<TextBox>(gym.content, "Altura (cm)").Text = "178";
-                    var goals = FieldByName<ComboBox>(gym.content, "Objetivo");
-                    goals.SelectedItem = goals.Items.Cast<Option>().First(o => o.Key == "recomp");
+                    SelectChoice(gym.content, "Objetivo", "recomp");
                     var days = Descendants(gym.content).OfType<CheckBox>().Take(7).ToArray();
                     foreach (int index in new[] { 0, 1, 3, 4 }) days[index].IsChecked = true;
                     Invoke(FindButton(gym.content, "Montar meu plano"));
@@ -544,6 +751,12 @@ namespace GymZ
             {
                 return Descendants(root).OfType<T>().First(input => (AutomationProperties.GetLabeledBy(input) as TextBlock) != null &&
                     ((TextBlock)AutomationProperties.GetLabeledBy(input)).Text == label);
+            }
+
+            private static void SelectChoice(DependencyObject root, string label, string key)
+            {
+                var field = Descendants(root).OfType<ChoiceButtons>().Single(choice => AutomationProperties.GetName(choice) == label);
+                Descendants(field).OfType<RadioButton>().Single(button => (string)button.Tag == key).IsChecked = true;
             }
 
             private static Button FindButton(DependencyObject root, string title)
@@ -561,9 +774,9 @@ namespace GymZ
                     if (dialog == null) return;
                     timer.Stop();
                     opened = true;
-                    try { if (inspect != null) inspect(dialog); Capture(dialog, filename); }
+                    try { if (inspect != null) inspect(dialog); if (dialog.IsVisible) Capture(dialog, filename); }
                     catch (Exception ex) { error = ex; }
-                    finally { dialog.Close(); }
+                    finally { if (dialog.IsVisible) dialog.Close(); }
                 };
                 timer.Start();
                 try { open(); }

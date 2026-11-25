@@ -8,11 +8,11 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 290px; }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 button, a, summary { touch-action: manipulation; }
 button:disabled { cursor: default; opacity: .5; }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, g:focus-visible, summary:focus-visible {
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, g:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent, #76baff);
   outline-offset: 3px;
 }
@@ -74,10 +74,14 @@ progress { appearance: none; -webkit-appearance: none; display: block; }
 .icon-button { display: inline-grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 13px; color: var(--muted); background: var(--raised); border: 1px solid var(--line); }
 .main { width: min(100%,740px); margin: auto; padding: 19px max(16px,env(safe-area-inset-right)) calc(92px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left)); }
 .nav { position: fixed; z-index: 3; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
-.nav-inner { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 3px; margin: auto; max-width: 740px; padding: 5px 7px; }
+.nav-inner { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 3px; margin: auto; max-width: 740px; padding: 5px max(7px,env(safe-area-inset-right)) 5px max(7px,env(safe-area-inset-left)); }
 .nav button { min-height: 55px; display: grid; justify-items: center; align-content: center; gap: 2px; border-radius: 12px; padding: 4px 1px; color: var(--muted); font-size: .72rem; font-weight: 650; }
 .nav button svg { width: 22px; height: 22px; }
 .nav button.active { color: var(--accent); background: var(--raised); }
+.secondary.edit-upcoming { flex-shrink: 0; min-height: 44px; padding-inline: 8px; }
+.workout-notes textarea { width: 100%; min-height: 112px; font-size: max(16px, 1em); padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); }
+.workout-notes p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.workout-notes .subtle { margin-top: 6px; }
 
 .heading { margin: 3px 0 16px; }
 .heading h1 { font-size: 2.05em; letter-spacing: -.045em; line-height: 1.08; font-weight: 780; overflow-wrap: anywhere; }
@@ -225,6 +229,9 @@ summary { min-height: 44px; padding: 10px 0; color: var(--accent); cursor: point
 .form > .full { justify-self: stretch; }
 .day-picks, .segmented, .swatches { display: flex; flex-wrap: wrap; gap: 5px; }
 .day-picks > button { flex: 1 0 37px; padding-inline: 4px; }
+.day-routine + .day-routine { border-top: 1px solid var(--line); padding-top: 10px; }
+.muscle-picks { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.muscle-picks > button { min-height: 44px; }
 .segmented { padding: 3px; background: var(--raised); border: 1px solid var(--line); border-radius: 11px; }
 .segmented button { flex: 1; padding: 5px; min-height: 44px; border: 1px solid transparent; border-radius: 9px; font-weight: 650; }
 .swatch { width: 45px; height: 45px; display: grid; place-items: center; border-radius: 50%; color: #172943; background: #a0ccff; }
@@ -274,8 +281,9 @@ summary { min-height: 44px; padding: 10px 0; color: var(--accent); cursor: point
 .screen-reader { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .swap-quick { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; margin-bottom: 9px; }
 .swap-quick p { font-size: .81em; }
-.swap-suggestions { margin: 12px 0 6px; }
-.swap-suggestions .primary { margin-top: 5px; }
+.swap-region { margin: 12px 0 6px; }
+.swap-region .secondary { margin-top: 5px; }
+.swap-region .menu-item .thumb { flex-basis: 56px; width: 56px; }
 .swap-filters { margin-bottom: 9px; }
 .swap-filters .card { margin-top: 2px; }
 

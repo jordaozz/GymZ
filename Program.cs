@@ -17,15 +17,14 @@ using System.Windows.Threading;
 [assembly: AssemblyTitle("GymZ")]
 [assembly: AssemblyDescription("Planejador e diário de treinos")]
 [assembly: AssemblyProduct("GymZ")]
-[assembly: AssemblyVersion("1.3.1.0")]
-[assembly: AssemblyFileVersion("1.3.1.0")]
+[assembly: AssemblyVersion(GymZ.BuildInfo.Version + ".0")]
+[assembly: AssemblyFileVersion(GymZ.BuildInfo.Version + ".0")]
 
 namespace GymZ
 {
     internal sealed partial class GymApp
     {
         private enum Section { Overview, Attendance, Workouts, Muscles, Reports, Profile, Settings, WorkoutRecord }
-        private const string Version = "1.3.1";
         private readonly Window window;
         private readonly Storage storage;
         private Training training;

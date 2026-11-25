@@ -7,6 +7,11 @@ using System.Reflection;
 
 namespace GymZ
 {
+    internal static class BuildInfo
+    {
+        public const string Version = "1.4.0";
+    }
+
     public sealed class Profile
     {
         public int[] Days = { 0, 1, 3, 4 };
@@ -18,10 +23,17 @@ namespace GymZ
         public string FocusMode = "balanced";
         public string Split;
         public string[] DayThemes;
+        public DayRoutine[] DayRoutines;
         public int Level;
         public int Minutes = 45;
         public decimal Weight;
         public decimal Height;
+    }
+
+    public sealed class DayRoutine
+    {
+        public bool Manual;
+        public string[] Groups = new string[0];
     }
 
     public sealed class ProfileRevision
@@ -82,11 +94,13 @@ namespace GymZ
         public bool Extra;
         public bool Complement;
         public bool Finalized;
+        public bool CustomizedPlan;
         public string Title;
         public string Attendance = "";
         public string MakeupFor = "";
         public string ComplementFor = "";
         public string ComplementGroup = "";
+        public string Notes = "";
         public List<Movement> Items = new List<Movement>();
     }
 
@@ -195,6 +209,10 @@ namespace GymZ
             return exercises;
         }
 
+        private static readonly HashSet<string> DumbbellFloorExercisesAndSquats = new HashSet<string> {
+            "floor-press", "db-bridge", "goblet", "sumo"
+        };
+
         public static bool Available(Exercise exercise, Profile profile)
         {
             if (exercise.Type == 'A')
@@ -207,7 +225,8 @@ namespace GymZ
                 return equipment == exercise.Id;
             }
             if (profile.Gear == "machines" || profile.Gear == "machines-dumbbell")
-                return exercise.Gear == "machine" || exercise.Gear == "cable" || (profile.Gear == "machines-dumbbell" && exercise.Gear == "dumbbell");
+                return exercise.Gear == "machine" || exercise.Gear == "cable" || (profile.Gear == "machines-dumbbell" &&
+                    exercise.Gear == "dumbbell" && !DumbbellFloorExercisesAndSquats.Contains(exercise.Id));
             if (profile.Gear == "dumbbell-only") return exercise.Gear == "dumbbell";
             return profile.Gear == "gym" || exercise.Gear == "body" || exercise.Gear == profile.Gear ||
                 (profile.Gear == "home" && (exercise.Gear == "dumbbell" || exercise.Gear == "band"));
@@ -275,6 +294,15 @@ namespace GymZ
         public static DateTime Monday(DateTime date) { return date.Date.AddDays(-Day(date)); }
         public static string Key(DateTime date) { return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); }
         public static DateTime Date(string key) { return DateTime.ParseExact(key, "yyyy-MM-dd", CultureInfo.InvariantCulture); }
+        internal static string CsvCell(string value)
+        {
+            int first = 0;
+            while (first < value.Length && (char.IsWhiteSpace(value[first]) || char.GetUnicodeCategory(value[first]) == UnicodeCategory.Format)) first++;
+            bool formula = first < value.Length && "=+-@＝＋－＠".IndexOf(value[first]) >= 0;
+            bool startsWithControl = value.Length > 0 && "\t\r\n".IndexOf(value[0]) >= 0;
+            if (formula || startsWithControl) value = "'" + value;
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        }
         public Profile At(DateTime date)
         {
             var revision = Data.Profiles.LastOrDefault(p => p.Start <= date.Date);
@@ -284,6 +312,9 @@ namespace GymZ
         public void ChangeProfile(Profile profile)
         {
             if (profile.Split == null) profile.Split = "auto";
+            int? emptyChoice = EmptyManualDay(profile);
+            if (emptyChoice.HasValue)
+                throw new InvalidOperationException("Selecione ao menos uma região para " + DayNames[emptyChoice.Value] + " ou escolha Sugestão do GymZ.");
             if (NeedsSetup)
             {
                 Data.Profiles.Clear();
@@ -292,35 +323,47 @@ namespace GymZ
                 return;
             }
             var current = At(Today);
-            bool planChanged = !current.Days.SequenceEqual(profile.Days) || current.Goal != profile.Goal || current.Focus != profile.Focus ||
-                current.Gear != profile.Gear || current.Level != profile.Level || current.Minutes != profile.Minutes ||
-                current.FocusMode != profile.FocusMode || current.Cardio != profile.Cardio || current.Split != profile.Split ||
-                !SameDayThemes(current, profile);
+            bool planChanged = !current.Days.SequenceEqual(profile.Days) || !SamePlanPreferences(current, profile) ||
+                current.Split != profile.Split || !SameDayChoices(current, profile);
+            var savedPlans = planChanged ? Data.Sessions.Where(p => Date(p.Key) >= Today && p.Value.Scheduled && !p.Value.Finalized &&
+                p.Value.Attendance == "" && string.IsNullOrEmpty(p.Value.Notes) && !p.Value.Items.Any(HasLog) && !Makeup(Date(p.Key)).HasValue)
+                .ToDictionary(p => p.Key, p => At(Date(p.Key))) : null;
             var previous = Data.Profiles.LastOrDefault(p => p.Start == Today);
             if (previous == null) Data.Profiles.Add(new ProfileRevision { Start = Today, Profile = profile });
             else previous.Profile = profile;
             Data.Profiles = Data.Profiles.OrderBy(p => p.Start).ToList();
             if (planChanged)
             {
-                foreach (var key in Data.Sessions.Where(p => Date(p.Key) >= Today && p.Value.Scheduled && !p.Value.Finalized && Makeup(Date(p.Key)) == null &&
-                    p.Value.Attendance == "" && !p.Value.Items.Any(HasLog)).Select(p => p.Key).ToArray())
-                    Data.Sessions.Remove(key);
+                foreach (var pair in savedPlans)
+                {
+                    var day = Date(pair.Key);
+                    if (!Data.Sessions[pair.Key].CustomizedPlan || !SameDayPlan(day, pair.Value, At(day)))
+                        Data.Sessions.Remove(pair.Key);
+                }
                 foreach (var key in Data.Sessions.Where(p => Date(p.Key) >= Today && p.Value.Extra && !p.Value.Finalized &&
-                    p.Value.Attendance == "" && !p.Value.Items.Any(HasLog) && At(Date(p.Key)).Days.Contains(Day(Date(p.Key)))).Select(p => p.Key).ToArray())
+                    p.Value.MakeupFor == "" && p.Value.Attendance == "" && string.IsNullOrEmpty(p.Value.Notes) && !p.Value.Items.Any(HasLog) &&
+                    At(Date(p.Key)).Days.Contains(Day(Date(p.Key)))).Select(p => p.Key).ToArray())
                     Data.Sessions.Remove(key);
             }
             Data.Configured = true;
         }
 
-        internal static bool HasLog(Movement item) { return item.Done || HasPerformance(item); }
-
-        private static bool SameDayThemes(Profile first, Profile second)
+        private static bool SamePlanPreferences(Profile first, Profile second)
         {
-            if (first.Split != "groups" || second.Split != "groups") return true;
-            return first.Days.SequenceEqual(second.Days) && first.Days.All(day =>
-                ((first.DayThemes == null ? "" : first.DayThemes[day]) ?? "") ==
-                ((second.DayThemes == null ? "" : second.DayThemes[day]) ?? ""));
+            return first.Goal == second.Goal && first.Focus == second.Focus && first.Gear == second.Gear && first.Level == second.Level &&
+                first.Minutes == second.Minutes && first.FocusMode == second.FocusMode && first.Cardio == second.Cardio;
         }
+
+        private bool SameDayPlan(DateTime date, Profile first, Profile second)
+        {
+            int slot = Array.IndexOf(second.Days, Day(date));
+            if (slot < 0 || slot != Array.IndexOf(first.Days, Day(date)) || !SamePlanPreferences(first, second)) return false;
+            var prior = PlanFor(date, first, slot);
+            var next = PlanFor(date, second, slot);
+            return prior.Groups.SequenceEqual(next.Groups) && prior.LegDay == next.LegDay && AutoCardio(first, slot) == AutoCardio(second, slot);
+        }
+
+        internal static bool HasLog(Movement item) { return item.Done || HasPerformance(item); }
 
         private static bool HasPerformance(Movement item)
         {
@@ -359,7 +402,112 @@ namespace GymZ
         public void RequireRecordingDay(DateTime date)
         {
             if (date.Date > Today) throw new InvalidOperationException("Este treino estará disponível na data prevista.");
-            if (date.Date < Today || !IsTrackedDate(date)) throw new InvalidOperationException("Os registros são feitos no próprio dia do treino.");
+            if (!IsTrackedDate(date)) throw new InvalidOperationException("Os registros começam na data do primeiro acesso.");
+            if (!CanRecordOn(date)) throw new InvalidOperationException("As semanas anteriores estão fechadas para alterações.");
+        }
+
+        internal bool CanRecordOn(DateTime date)
+        {
+            return date.Date <= Today && date.Date >= Monday(Today) && IsTrackedDate(date);
+        }
+
+        internal IEnumerable<DateTime> PendingAttendance()
+        {
+            var monday = Monday(Today);
+            return Enumerable.Range(0, Day(Today)).Select(offset => monday.AddDays(offset)).Where(day => {
+                if (!CanRecordOn(day) || Makeup(day).HasValue) return false;
+                var session = Get(day);
+                return (session.Scheduled || session.Extra) && session.Attendance == "" && !Present(session);
+            });
+        }
+
+        internal bool CanEditPlan(DateTime date, Session session)
+        {
+            return (date.Date > Today || CanRecordOn(date)) && IsTrackedDate(date) && (session.Scheduled || session.Extra) &&
+                !Complete(session) && !Makeup(date).HasValue;
+        }
+
+        private void RequireEditablePlan(DateTime date, Session session)
+        {
+            if (!CanEditPlan(date, session)) throw new InvalidOperationException("Abra uma ficha disponível para editar os exercícios.");
+        }
+
+        internal void EditPlanExercise(DateTime date, string originalId, Exercise choice, bool allowAdvanced = false, bool temporary = false, bool avoid = false)
+        {
+            var session = Get(date);
+            RequireEditablePlan(date, session);
+            int index = originalId == null ? -1 : FindUnrecordedExercise(session, originalId);
+            if (session.Items.Any(item => item.Id == choice.Id)) throw new InvalidOperationException("Este exercício já está na ficha.");
+            var profile = At(date);
+            if (!(allowAdvanced ? Catalog.Available(choice, profile) && !Data.Avoided.Contains(choice.Id) : Eligible(choice, profile)) ||
+                !FitsSession(date, session, choice)) throw new InvalidOperationException("Este exercício não combina com o equipamento ou a recuperação previstos para esta ficha.");
+
+            bool priority = index >= 0 && session.Items[index].Priority && Catalog.ById[originalId].Group == choice.Group;
+            var movement = PrescribeForSession(date, session, choice, priority);
+            if (index < 0) session.Items.Add(movement);
+            else session.Items[index] = movement;
+            OrderCardio(session);
+            SaveCustomizedPlan(date, session);
+            if (originalId != null)
+            {
+                LearnSwap(originalId, choice.Id, temporary);
+                if (avoid) Avoid(originalId);
+            }
+        }
+
+        internal void RemovePlanExercise(DateTime date, string id)
+        {
+            var session = Get(date);
+            RequireEditablePlan(date, session);
+            session.Items.RemoveAt(FindUnrecordedExercise(session, id));
+            SaveCustomizedPlan(date, session);
+        }
+
+        internal bool CanChoosePlanRegions(DateTime date, Session session)
+        {
+            return date.Date > Today && session.Scheduled && session.Attendance == "" && !session.Items.Any(HasLog) && CanEditPlan(date, session);
+        }
+
+        internal static IEnumerable<string> PlanRegions(Session session)
+        {
+            return session.Items.Select(item => Catalog.ById[item.Id].Group).Where(group => group != "cardio").Distinct();
+        }
+
+        internal void ChoosePlanRegions(DateTime date, string[] groups)
+        {
+            var session = Get(date);
+            if (!CanChoosePlanRegions(date, session)) throw new InvalidOperationException("Escolha uma ficha futura sem registros para montar por regiões.");
+            var profile = At(date);
+            int slot = Array.IndexOf(profile.Days, Day(date));
+            if (slot < 0) throw new InvalidOperationException("Este dia está fora da sua divisão semanal.");
+            var plan = ManualPlan(profile, slot, CreateManualDay(groups));
+            if (groups.Length == 0) throw new InvalidOperationException("Selecione ao menos uma região.");
+            if (plan.Family.Length != groups.Length)
+                throw new InvalidOperationException("Sem exercícios compatíveis com seu perfil para " +
+                    string.Join(", ", groups.Except(plan.Family).Select(group => Catalog.Names[group])) + ".");
+            SaveCustomizedPlan(date, Build(date, profile, slot, plan));
+        }
+
+        internal void RestoreProfilePlan(DateTime date)
+        {
+            var session = Get(date);
+            if (!session.CustomizedPlan || !CanChoosePlanRegions(date, session) || !At(date).Days.Contains(Day(date)))
+                throw new InvalidOperationException("Abra uma ficha futura personalizada para voltar ao plano do perfil.");
+            Data.Sessions.Remove(Key(date));
+        }
+
+        private void SaveCustomizedPlan(DateTime date, Session session)
+        {
+            session.CustomizedPlan = true;
+            Data.Sessions[Key(date)] = session;
+        }
+
+        private static int FindUnrecordedExercise(Session session, string id)
+        {
+            int index = session.Items.FindIndex(item => item.Id == id);
+            if (index < 0) throw new InvalidOperationException("O exercício não está mais na ficha.");
+            if (HasLog(session.Items[index])) throw new InvalidOperationException("Este exercício já tem um registro de treino.");
+            return index;
         }
 
         public static bool Present(Session session) { return session.Attendance == "present" || session.Finalized || session.Items.Any(i => i.Done); }
@@ -399,6 +547,25 @@ namespace GymZ
             Data.Sessions[Key(date)] = entry;
         }
 
+        internal const int NotesLimit = 800;
+
+        internal static bool ValidNotes(string notes)
+        {
+            return notes.Length <= NotesLimit && notes.All(ch => !char.IsControl(ch) || ch == '\n' || ch == '\r');
+        }
+
+        internal void SaveNotes(DateTime date, string text)
+        {
+            RequireRecordingDay(date);
+            string notes = (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+            if (!ValidNotes(notes)) throw new InvalidOperationException("Use até " + NotesLimit + " caracteres de texto na observação.");
+            var session = Get(date);
+            if ((!session.Scheduled && !session.Extra) || Makeup(date).HasValue)
+                throw new InvalidOperationException("Abra uma sessão de treino para anotar uma observação.");
+            session.Notes = notes;
+            Data.Sessions[Key(date)] = session;
+        }
+
         public Session EnableExtra(DateTime date)
         {
             RequireRecordingDay(date);
@@ -411,9 +578,9 @@ namespace GymZ
 
         public void CancelComplement(DateTime date)
         {
-            if (date.Date != Today) return;
+            RequireRecordingDay(date);
             var entry = Get(date);
-            if (!entry.Complement || entry.Finalized || entry.Items.Any(HasLog)) return;
+            if (!entry.Complement || entry.Finalized || entry.Items.Any(HasLog) || !string.IsNullOrEmpty(entry.Notes)) return;
             if (entry.Attendance == "") Data.Sessions.Remove(Key(date));
             else Data.Sessions[Key(date)] = new Session { Title = "Descanso", Attendance = entry.Attendance };
         }
@@ -468,20 +635,46 @@ namespace GymZ
         {
             var entry = Get(day);
             if (entry.MakeupFor == "") return;
-            if (Present(entry) || entry.Items.Any(HasLog)) entry.MakeupFor = "";
+            if (Present(entry) || entry.Items.Any(HasLog) || !string.IsNullOrEmpty(entry.Notes)) entry.MakeupFor = "";
             else Data.Sessions.Remove(Key(day));
         }
 
         public List<Exercise> Alternatives(DateTime date, Session session, Movement old)
         {
-            var profile = At(date);
             var exercise = Catalog.ById[old.Id];
-            var familiarity = Familiarity(date);
-            return Catalog.All.Where(e => Eligible(e, profile) && FitsSession(date, session, e) && !session.Items.Any(item => item.Id == e.Id) &&
-                (e.Group == exercise.Group || Equivalent(exercise, e))).OrderByDescending(e => Equivalent(exercise, e))
+            var choices = WorkoutChoices(date, session).Where(e => e.Group == exercise.Group || Equivalent(exercise, e));
+            return RankAlternatives(choices, exercise, Familiarity(date)).ToList();
+        }
+
+        internal IEnumerable<Exercise> WorkoutChoices(DateTime date, Session session)
+        {
+            var profile = At(date);
+            return Catalog.All.Where(e => Eligible(e, profile) && FitsSession(date, session, e) && !session.Items.Any(item => item.Id == e.Id));
+        }
+
+        internal static readonly Dictionary<string, string> SwapScopes = new Dictionary<string, string> {
+            { "workout", "Regiões deste treino" }, { "all", "Toda a biblioteca" }
+        };
+
+        internal IEnumerable<Exercise> SwapChoices(DateTime date, Session session, Movement old, bool workoutOnly)
+        {
+            var original = Catalog.ById[old.Id];
+            var groups = new[] { original.Group }.Concat(session.Items.Select(item => Catalog.ById[item.Id].Group)).Distinct().ToList();
+            var choices = WorkoutChoices(date, session);
+            if (workoutOnly) choices = choices.Where(e => groups.Contains(e.Group));
+            return RankAlternatives(choices, original, Familiarity(date)).OrderBy(e => {
+                int position = groups.IndexOf(e.Group);
+                return position < 0 ? groups.Count : position;
+            });
+        }
+
+        private static IOrderedEnumerable<Exercise> RankAlternatives(IEnumerable<Exercise> choices, Exercise exercise,
+            Dictionary<string, ExerciseUse> familiarity)
+        {
+            return choices.OrderByDescending(e => Equivalent(exercise, e))
                 .ThenByDescending(e => e.Group == exercise.Group).ThenByDescending(e => IsLegPress(e.Id) && IsLegPress(exercise.Id))
                 .ThenByDescending(e => familiarity[e.Id].ChoiceScore)
-                .ThenByDescending(e => e.Type == exercise.Type).ThenByDescending(e => e.Other.Intersect(exercise.Other).Count()).ToList();
+                .ThenByDescending(e => e.Type == exercise.Type).ThenByDescending(e => e.Other.Intersect(exercise.Other).Count());
         }
 
         public void LearnSwap(string from, string to, bool temporary)
@@ -657,9 +850,9 @@ namespace GymZ
             return new DayPlan { Title = title, Family = family, Groups = baseGroups, LegDay = lower };
         }
 
-        private Session Build(DateTime date, Profile profile, int slot)
+        private Session Build(DateTime date, Profile profile, int slot, DayPlan plan = null)
         {
-            var plan = PlanFor(date, profile, slot);
+            if (plan == null) plan = PlanFor(date, profile, slot);
             var groups = plan.Groups;
             var session = new Session { Scheduled = slot >= 0, Title = plan.Title };
             bool cardio = AutoCardio(profile, slot);
@@ -779,6 +972,19 @@ namespace GymZ
         private void AddExpected(Dictionary<string, MuscleWeek> coverage, DateTime date)
         {
             if (NeedsSetup || !IsTrackedDate(date) || date < Data.Profiles[0].Start) return;
+            Session saved;
+            if (Data.Sessions.TryGetValue(Key(date), out saved) && saved.Scheduled &&
+                (saved.CustomizedPlan || saved.Finalized || saved.Items.Any(HasLog)))
+            {
+                foreach (var item in saved.Items)
+                {
+                    var exercise = Catalog.ById[item.Id];
+                    if (exercise.Type == 'A') continue;
+                    coverage[exercise.Group].Expected += item.Sets;
+                    coverage[exercise.Group].PlannedDays.Add(date.Date);
+                }
+                return;
+            }
             var profile = At(date);
             int slot = Array.IndexOf(profile.Days, Day(date));
             if (slot < 0) return;
@@ -882,6 +1088,11 @@ namespace GymZ
         public LiftRecord PreviousLoad(DateTime day, string id)
         {
             return LiftHistory(id, day.AddDays(-1)).FirstOrDefault(record => record.Peak.HasValue);
+        }
+
+        public LiftRecord PreviousPerformance(DateTime day, string id)
+        {
+            return LiftHistory(id, day.AddDays(-1)).FirstOrDefault();
         }
 
         public DateTime? NextGroup(DateTime date, string group)

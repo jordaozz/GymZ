@@ -9,7 +9,14 @@ namespace GymZ.Mobile;
 public partial class App : IDisposable
 {
     private enum Tab { Workouts, Attendance, Map, Reports, More, Overview, Profile, Settings }
-    private enum Page { Root, Workout, Guide, History, Log, Edit, Calendar, Makeup, Plan, Coverage }
+    private enum Page { Root, Workout, Guide, History, Log, Edit, Calendar, Makeup, Plan, Coverage, Regions, Notes }
+
+    private static readonly Dictionary<string, string> ExperienceOptions = new() {
+        ["0"] = "Iniciante ou retomando", ["1"] = "Intermediário / avançado"
+    };
+    private static readonly Dictionary<string, string> SwapModeOptions = new() {
+        ["learn"] = "Usar nas sugestões futuras", ["temporary"] = "Trocar só nesta ficha", ["avoid"] = "Evitar o exercício original"
+    };
 
     [Inject] private IJSRuntime JS { get; set; }
     private Training training;
@@ -26,6 +33,11 @@ public partial class App : IDisposable
     private string weight = "", height = "";
     private string calendarFrom = "";
     private string editGroup = "", editGear = "", editQuery = "", editMode = "learn";
+    private string swapScope = "workout";
+    private string editOriginalId;
+    private int? profileRegionDay;
+    private HashSet<string> regionDraft = new();
+    private string workoutNotes;
     private int editing;
     private GymData importData;
     private bool hasRestorePoint;
@@ -97,7 +109,7 @@ public partial class App : IDisposable
             training.Today = Training.Date(today);
             if (week == Training.Monday(previous)) week = Training.Monday(Today);
             if (month == MonthOf(previous)) month = MonthOf(Today);
-            if (tab == Tab.Workouts || page == Page.Log || page == Page.Edit)
+            if (tab == Tab.Workouts || ((page is Page.Log or Page.Notes) && !training.CanRecordOn(date)))
             {
                 page = Page.Root;
                 date = Today;
@@ -119,7 +131,7 @@ public partial class App : IDisposable
 
     private static GymData Unpack(string json) => Storage.Unpack(Encoding.UTF8.GetBytes(json.TrimStart('\uFEFF')));
 
-    private async Task Change(Action action, string confirmation = "", bool restore = false, string clearDraft = null)
+    private async Task Change(Action action, string confirmation = "", bool restore = false, string clearDraft = null, DateTime? draftDate = null)
     {
         if (busy) return;
         busy = true;
@@ -131,7 +143,7 @@ public partial class App : IDisposable
                 throw new InvalidOperationException("O dia mudou. Abra novamente o treino de hoje.");
             action();
             var content = Storage.Pack(Data);
-            await JS.InvokeVoidAsync("gymz.save", content, saved, restore, Training.Key(Today), clearDraft);
+            await JS.InvokeVoidAsync("gymz.save", content, saved, restore, Training.Key(draftDate ?? Today), clearDraft);
             saved = content;
             if (restore) hasRestorePoint = true;
             notice = confirmation;
@@ -140,6 +152,7 @@ public partial class App : IDisposable
         {
             training = new Training(Unpack(snapshot), Today);
             error = ex.Message;
+            fieldFocus = "app-error";
         }
         catch (JSException ex)
         {
@@ -147,6 +160,7 @@ public partial class App : IDisposable
             error = ex.Message.Contains("gymz-conflict", StringComparison.Ordinal)
                 ? "Os dados mudaram em outra janela. Recarregue para continuar com a versão mais recente."
                 : "A alteração ficou sem salvar. Verifique o espaço ou as permissões de armazenamento deste navegador.";
+            fieldFocus = "app-error";
         }
         finally { busy = false; }
     }
@@ -205,7 +219,7 @@ public partial class App : IDisposable
             Gear = current.Gear, Cardio = current.Cardio, FocusMode = current.FocusMode, Split = current.Split ?? "auto",
             Level = current.Level, Minutes = current.Minutes, Weight = current.Weight, Height = current.Height,
             Days = training.NeedsSetup ? Array.Empty<int>() : current.Days.ToArray(),
-            DayThemes = current.DayThemes?.ToArray() ?? new string[7].Select(_ => "").ToArray()
+            DayRoutines = Training.EditDayRoutines(current)
         };
         weight = NumberLabel(form.Weight);
         height = NumberLabel(form.Height);
@@ -214,6 +228,50 @@ public partial class App : IDisposable
     private void ToggleDay(int day)
     {
         form.Days = form.Days.Contains(day) ? form.Days.Where(d => d != day).ToArray() : form.Days.Append(day).OrderBy(d => d).ToArray();
+    }
+
+    private void OpenProfileRegions(int day)
+    {
+        profileRegionDay = day;
+        regionDraft = new HashSet<string>(form.DayRoutines[day].Groups);
+        Sub(Page.Regions);
+    }
+
+    private void OpenWorkoutRegions(DateTime day, Session session)
+    {
+        date = day;
+        profileRegionDay = null;
+        regionDraft = new HashSet<string>(Training.PlanRegions(session));
+        Sub(Page.Regions);
+    }
+
+    private void ToggleRegion(string group)
+    {
+        if (!regionDraft.Remove(group)) regionDraft.Add(group);
+    }
+
+    private async Task ConfirmRegions()
+    {
+        string[] selectedGroups = Catalog.Groups.Where(regionDraft.Contains).ToArray();
+        if (profileRegionDay is { } day)
+        {
+            form.DayRoutines[day] = new DayRoutine { Manual = true, Groups = selectedGroups };
+            Back();
+            return;
+        }
+        await Change(() => training.ChoosePlanRegions(date, selectedGroups));
+        if (error == "")
+        {
+            Back();
+            notice = "Ficha gerada para " + ShortDate(date) + ".";
+        }
+    }
+
+    private async Task RestoreProfilePlan(DateTime day)
+    {
+        if (!await JS.InvokeAsync<bool>("gymz.confirm", "Substituir as alterações desta ficha pelo plano atual do perfil?")) return;
+        await Change(() => training.RestoreProfilePlan(day), "Ficha atualizada com o plano do perfil.");
+        if (error == "") fieldFocus = "plan-heading";
     }
 
     private async Task SaveProfile()
@@ -237,6 +295,19 @@ public partial class App : IDisposable
     {
         date = day;
         Sub(Page.Workout);
+    }
+
+    private void OpenNotes(DateTime day)
+    {
+        date = day;
+        workoutNotes = training.Get(day).Notes ?? "";
+        Sub(Page.Notes);
+    }
+
+    private async Task SaveNotes()
+    {
+        await Change(() => training.SaveNotes(date, workoutNotes));
+        if (error == "") { Back(); notice = "Observação salva."; }
     }
 
     private void OpenGuide(Exercise value, bool fromWorkout = false) { exercise = value; Sub(Page.Guide, fromWorkout ? CardId(value.Id) : null); }
@@ -282,15 +353,16 @@ public partial class App : IDisposable
         await Edit(target, true);
     }
 
-    private async Task TodayChange(Action action, string message = "", string clearDraft = null)
+    private async Task RecordChange(Action action, string message = "", string clearDraft = null)
     {
-        await Change(() => { training.RequireRecordingDay(date); action(); }, message, clearDraft: clearDraft);
+        var day = date;
+        await Change(() => { training.RequireRecordingDay(day); action(); }, message, clearDraft: clearDraft, draftDate: day);
     }
 
     private async Task ToggleDone(int index)
     {
         var id = training.Get(date).Items[index].Id;
-        await TodayChange(() => {
+        await RecordChange(() => {
             var entry = training.Save(date);
             var item = entry.Items[index];
             item.Done = !item.Done;
@@ -306,54 +378,40 @@ public partial class App : IDisposable
 
     private async Task Finish()
     {
-        await TodayChange(() => training.Finish(date), "Treino concluído.");
+        await RecordChange(() => training.Finish(date), "Treino concluído.");
         if (error == "") review = false;
     }
 
     private void OpenEdit(int index, bool occupied = false)
     {
-        editing = index;
-        editGroup = index < 0 ? "" : "same";
-        editGear = editQuery = "";
-        editMode = occupied ? "temporary" : "learn";
-        Sub(Page.Edit, index < 0 ? null : CardId(training.Get(date).Items[index].Id));
+        editOriginalId = index < 0 ? null : training.Get(date).Items[index].Id;
+        editGroup = editGear = editQuery = "";
+        swapScope = "workout";
+        editMode = occupied || date != Today ? "temporary" : "learn";
+        Sub(Page.Edit, editOriginalId == null ? null : CardId(editOriginalId));
+    }
+
+    private void SetSwapScope(string scope)
+    {
+        swapScope = scope;
+        editGroup = "";
     }
 
     private IEnumerable<Exercise> EditChoices()
     {
         var entry = training.Get(date);
-        var profile = training.At(date);
-        var source = editing >= 0 && editGroup == "same" ? training.Alternatives(date, entry, entry.Items[editing]) : Catalog.All;
-        return source.Where(x => training.Eligible(x, profile) && training.FitsSession(date, entry, x) &&
-            !entry.Items.Any(item => item.Id == x.Id) && (editGroup is "" or "same" || x.Group == editGroup) &&
+        var original = entry.Items.FirstOrDefault(item => item.Id == editOriginalId);
+        if (editOriginalId != null && original == null) return Enumerable.Empty<Exercise>();
+        var source = original == null ? training.WorkoutChoices(date, entry) : training.SwapChoices(date, entry, original, swapScope == "workout");
+        return source.Where(x => (editGroup == "" || x.Group == editGroup) &&
             (editGear == "" || x.Gear == editGear) && Matches(x.Name, editQuery));
     }
 
     private async Task Edit(Exercise choice, bool library = false)
     {
-        var oldId = editing >= 0 && !library ? training.Get(date).Items[editing].Id : null;
-        await TodayChange(() => {
-            var entry = training.Get(date);
-            if ((!entry.Scheduled && !entry.Extra) || Training.Complete(entry) || training.Makeup(date).HasValue)
-                throw new InvalidOperationException("Abra uma sessão disponível em Treinos para editar a lista.");
-            if (entry.Items.Any(m => m.Id == choice.Id)) throw new InvalidOperationException("Este exercício já está no treino de hoje.");
-            if (!(library ? Catalog.Available(choice, training.At(date)) && !Data.Avoided.Contains(choice.Id) : training.Eligible(choice, training.At(date))) ||
-                !training.FitsSession(date, entry, choice)) throw new InvalidOperationException("Este exercício não combina com o equipamento ou a recuperação previstos para hoje.");
-            var stored = training.Save(date);
-            var previous = editing < 0 || library ? null : stored.Items[editing];
-            if (previous != null && Training.HasLog(previous))
-                throw new InvalidOperationException("O exercício já tem um registro. Preserve a série e a carga na lista de hoje.");
-            var movement = training.PrescribeForSession(date, stored, choice,
-                previous?.Priority == true && Catalog.ById[previous.Id].Group == choice.Group);
-            if (previous == null) stored.Items.Add(movement);
-            else
-            {
-                stored.Items[editing] = movement;
-                training.LearnSwap(previous.Id, choice.Id, editMode == "temporary");
-                if (editMode == "avoid") training.Avoid(previous.Id);
-            }
-            Training.OrderCardio(stored);
-        }, clearDraft: oldId);
+        var oldId = library ? null : editOriginalId;
+        await Change(() => training.EditPlanExercise(date, oldId, choice, allowAdvanced: library,
+            temporary: editMode == "temporary", avoid: editMode == "avoid"), clearDraft: training.CanRecordOn(date) ? oldId : null, draftDate: date);
         if (error == "")
         {
             if (library) Open(Tab.Workouts);
@@ -362,24 +420,20 @@ public partial class App : IDisposable
                 workoutCard = CardId(choice.Id);
                 Back();
             }
-            notice = "Lista de hoje atualizada.";
+            notice = "Ficha atualizada.";
         }
     }
 
     private async Task Remove()
     {
-        if (editing < 0 || !await JS.InvokeAsync<bool>("gymz.confirm", "Retirar este exercício da lista de hoje?")) return;
-        var id = training.Get(date).Items[editing].Id;
-        await TodayChange(() => {
-            var entry = training.Get(date);
-            if (Training.Complete(entry) || Training.HasLog(entry.Items[editing]))
-                throw new InvalidOperationException("O exercício já tem um registro.");
-            training.Save(date).Items.RemoveAt(editing);
-        }, clearDraft: id);
+        var id = editOriginalId;
+        if (id == null || !await JS.InvokeAsync<bool>("gymz.confirm", "Retirar este exercício desta ficha?")) return;
+        var index = training.Get(date).Items.FindIndex(item => item.Id == id);
+        await Change(() => training.RemovePlanExercise(date, id), clearDraft: training.CanRecordOn(date) ? id : null, draftDate: date);
         if (error == "")
         {
             var items = training.Get(date).Items;
-            workoutCard = items.Count > 0 ? CardId(items[Math.Min(editing, items.Count - 1)].Id) : null;
+            workoutCard = items.Count > 0 ? CardId(items[Math.Clamp(index, 0, items.Count - 1)].Id) : null;
             Back();
         }
     }
@@ -436,7 +490,7 @@ public partial class App : IDisposable
             var fields = new[] { Training.Key(day), Training.DayNames[Training.Day(day)], Status(day, entry), entry.Title };
             var pending = training.PendingExercises(day, entry);
             var items = entry.Items.Where(m => day <= Today && (m.Done || pending.Contains(m))).ToList();
-            if (items.Count == 0) csv.AppendLine(string.Join(";", fields.Select(CsvCell)) + ";;;;;;;;;");
+            if (items.Count == 0) csv.AppendLine(string.Join(";", fields.Select(Training.CsvCell)) + ";;;;;;;;;");
             foreach (var item in items)
             {
                 var ex = Catalog.ById[item.Id];
@@ -446,13 +500,12 @@ public partial class App : IDisposable
                     item.Done ? new LiftRecord { Movement = item }.Peak?.ToString("0.##", Training.Pt) ?? "" : "",
                     item.Done && item.Efforts != null ? string.Join(" / ", item.Efforts.Select(s => SetText(s, ex))) : "",
                     item.Done ? "Concluído" : "Ficou pendente" };
-                csv.AppendLine(string.Join(";", fields.Concat(extra).Select(CsvCell)));
+                csv.AppendLine(string.Join(";", fields.Concat(extra).Select(Training.CsvCell)));
             }
         }
         return Download("GymZ-" + Training.Key(week) + ".csv", "text/csv;charset=utf-8", csv.ToString());
     }
 
-    private static string CsvCell(string text) => "\"" + ((text.Length > 0 && "=+-@\t\r".Contains(text[0]) ? "'" : "") + text).Replace("\"", "\"\"") + "\"";
     private static bool Matches(string name, string input) =>
         Training.Pt.CompareInfo.IndexOf(name, input.Trim(), CompareOptions.IgnoreNonSpace | CompareOptions.IgnoreCase) >= 0;
     private static decimal? Parse(string text, string label, decimal min, decimal max, bool whole = false)

@@ -246,7 +246,25 @@ namespace GymZ
             content.Children.Add(stats);
             var calendar = new StackPanel();
             calendar.Children.Add(Text("Calendário semanal", 19, null, true));
+            Add(calendar, Text(week == Training.Monday(training.Today)
+                ? "Registre os treinos desta semana até domingo."
+                : week < Training.Monday(training.Today) ? "Semana fechada · Histórico disponível para consulta." : "Semana futura · As fichas podem ser planejadas.", 13, "Muted"), 6);
             Add(calendar, DayStrip(Section.Attendance), 12);
+            if (week == Training.Monday(training.Today))
+            {
+                var pending = training.PendingAttendance().ToArray();
+                if (pending.Length > 0)
+                {
+                    Add(calendar, Text("Treinos sem registro", 13, "Warn", true), 8);
+                    var shortcuts = new WrapPanel();
+                    foreach (var day in pending)
+                    {
+                        var target = day;
+                        AddChoice(shortcuts, Button(DayAndDate(target), () => SelectDay(target, Section.Attendance), "Selected"));
+                    }
+                    Add(calendar, shortcuts, 5);
+                }
+            }
             var profile = training.At(training.Today);
             var schedule = new WrapPanel();
             var dayText = Text("Dias fixos: " + string.Join(", ", profile.Days.Select(d => Training.DayShort[d])), 13, "Muted");
@@ -262,7 +280,7 @@ namespace GymZ
             detail.Children.Add(Text(Training.DayNames[Training.Day(date)] + " · " + Range(date), 20, null, true));
             Add(detail, Text(entry.Title + "  ·  " + status.Label, 14, status.Brush, true), 5);
             var actions = new WrapPanel();
-            if (date == training.Today && training.IsTrackedDate(date))
+            if (training.CanRecordOn(date))
             {
                 var mark = Button("Treinei", () => Commit(() => training.Attendance(date, "present"), "Presença registrada."), "Primary");
                 mark.IsEnabled = !Training.Present(entry) && !training.Makeup(date).HasValue;
@@ -278,8 +296,12 @@ namespace GymZ
                     AddChoice(actions, Button("Limpar marcação", () => Commit(() => training.Attendance(date, ""), "Marcação manual removida.")));
             }
             else Add(detail, Text(!training.IsTrackedDate(date) ? "O acompanhamento começa em " + Range(Data.FirstAccess) + "." :
-                date > training.Today ? "Você pode registrar presença nessa data." : "Dias anteriores ficam disponíveis para consulta.", 13, "Muted"), 8);
-            if (entry.Scheduled || entry.Extra) AddChoice(actions, Button(date > training.Today ? "Consultar treino previsto" : "Abrir treino do dia", () => SelectDay(date, Section.Workouts)));
+                date > training.Today ? "Registre presença e cargas a partir da data do treino." : "A semana deste treino está fechada.", 13, "Muted"), 8);
+            if (entry.Scheduled || entry.Extra)
+            {
+                string action = date > training.Today && training.CanEditPlan(date, entry) ? "Editar ficha" : "Abrir treino do dia";
+                AddChoice(actions, Button(action, () => SelectDay(date, Section.Workouts), action == "Editar ficha" ? "Selected" : null));
+            }
             Add(detail, actions, 12);
 
             var makeup = training.Makeup(date);
@@ -309,7 +331,8 @@ namespace GymZ
         private void ShowWorkouts(DateTime date)
         {
             var entry = training.Get(date);
-            bool isToday = date == training.Today && training.IsTrackedDate(date);
+            bool canRecord = training.CanRecordOn(date);
+            bool isToday = date == training.Today;
             bool future = date > training.Today;
             bool complete = !future && Training.Complete(entry);
             if (isToday && complete && reviewingCompletedDay != date)
@@ -329,10 +352,11 @@ namespace GymZ
             }
             if (!entry.Scheduled && !entry.Extra)
             {
-                if (isToday)
+                if (canRecord)
                 {
-                    Add(info, Text("Se for à academia hoje, você pode montar uma sessão complementar leve.", 14, "Muted"), 6);
-                    var start = Button("Montar treino extra", () => Commit(() => training.EnableExtra(date), null), "Primary");
+                    Add(info, Text(isToday ? "Se for à academia hoje, você pode montar uma sessão complementar leve." :
+                        "Se você treinou nesta data, monte uma ficha extra e ajuste os exercícios ao que fez.", 14, "Muted"), 6);
+                    var start = Button(isToday ? "Montar treino extra" : "Registrar treino extra", () => Commit(() => training.EnableExtra(date), null), "Primary");
                     start.HorizontalAlignment = HorizontalAlignment.Left;
                     Add(info, start, 13);
                 }
@@ -357,23 +381,43 @@ namespace GymZ
                 Add(info, Text("Use carga leve e termine com pelo menos 4 repetições em reserva. Mantenha o cardio em ritmo confortável.", 12, "Accent"), 7);
             }
             var menu = new WrapPanel();
-            if (isToday && !complete) AddChoice(menu, Button("Adicionar exercício", () => EditExerciseList(date, -1), "Selected"));
-            if (isToday && entry.Complement && !complete && !entry.Items.Any(Training.HasLog))
+            bool canEditPlan = training.CanEditPlan(date, entry);
+            bool canChooseRegions = training.CanChoosePlanRegions(date, entry);
+            if (future)
+            {
+                if (entry.CustomizedPlan) Add(info, Text("Ficha personalizada para esta data", 13, "Accent", true), 7);
+                Add(info, Text("Presença, cargas e conclusão podem ser registradas na data do treino.", 13, "Muted"), 7);
+            }
+            else if (!isToday)
+                Add(info, Text(canRecord ? "Registre o que fez neste dia até o fim da semana." : "Semana fechada · Treino disponível para consulta.", 13, "Muted"), 7);
+            if (!string.IsNullOrEmpty(entry.Notes)) Add(info, Text("Observação do treino · " + entry.Notes, 13, "Muted"), 7);
+            if (canRecord) AddChoice(menu, Button(string.IsNullOrEmpty(entry.Notes) ? "Adicionar observação" : "Editar observação", () => EditWorkoutNotes(date)));
+            if (canChooseRegions)
+                AddChoice(menu, Button("Escolher regiões", () => ShowRegionPicker(DayAndDate(date), Training.PlanRegions(entry),
+                    groups => Commit(() => training.ChoosePlanRegions(date, groups), "Ficha montada para " + Range(date) + ".")), "Selected"));
+            if (canEditPlan) AddChoice(menu, Button("Adicionar exercício", () => EditExerciseList(date, -1), "Selected"));
+            if (canChooseRegions && entry.CustomizedPlan)
+                AddChoice(menu, Button("Voltar ao plano do perfil", () => {
+                    if (MessageBox.Show(window, "Substituir as alterações desta ficha pelo plano atual do perfil?", "GymZ", MessageBoxButton.YesNo,
+                        MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes)
+                        Commit(() => training.RestoreProfilePlan(date), "Ficha atualizada com o plano do perfil.");
+                }));
+            if (canRecord && entry.Complement && !complete && !entry.Items.Any(Training.HasLog) && string.IsNullOrEmpty(entry.Notes))
                 AddChoice(menu, Button("Voltar ao descanso", () => Commit(() => training.CancelComplement(date), null)));
-            if (isToday && !complete && Training.Present(entry) && entry.Items.Count > 0)
+            if (canRecord && !complete && Training.Present(entry) && entry.Items.Count > 0)
                 headerActions.Children.Add(Button("Finalizar treino", () => Commit(() => { reviewingCompletedDay = null; training.Finish(date); }, null), "Primary"));
             if (complete)
             {
                 Add(info, Text("Treino concluído", 13, "Good", true), 7);
-                if (isToday && entry.Finalized) AddChoice(menu, Button("Reabrir treino", () => Commit(() => training.Reopen(date), null)));
+                if (canRecord && entry.Finalized) AddChoice(menu, Button("Reabrir treino", () => Commit(() => training.Reopen(date), null)));
                 if (isToday) AddChoice(menu, Button("Voltar à conclusão", () => { reviewingCompletedDay = null; Render(false); }));
             }
             if (menu.Children.Count > 0) Add(info, menu, 10);
             content.Children.Add(Card(info, 15));
 
             for (int i = 0; i < entry.Items.Count; i++)
-                Add(content, MovementCard(date, entry, i), 8);
-            if (entry.Items.Count == 0 && isToday) Add(content, Text("Adicione um exercício para montar o treino deste dia.", 13, "Muted"), 12);
+                Add(content, MovementCard(date, entry, i, canEditPlan), 8);
+            if (entry.Items.Count == 0 && canEditPlan) Add(content, Text("Adicione um exercício para montar o treino deste dia.", 13, "Muted"), 12);
         }
 
         private Border CompletedWorkout(DateTime date, Session entry)
@@ -396,13 +440,13 @@ namespace GymZ
             return Card(body, 18);
         }
 
-        private Border MovementCard(DateTime date, Session entry, int index)
+        private Border MovementCard(DateTime date, Session entry, int index, bool canEditPlan)
         {
             var item = entry.Items[index];
             var exercise = Catalog.ById[item.Id];
             var block = new StackPanel();
             bool future = date > training.Today;
-            bool editable = date == training.Today && !entry.Finalized;
+            bool editable = training.CanRecordOn(date) && !entry.Finalized;
             if (future) block.Children.Add(Text(exercise.Name, 16, null, true));
             else
             {
@@ -435,7 +479,7 @@ namespace GymZ
             }
             string progress = LiftLabel(item, exercise);
             if (!future && progress != "") Add(block, Text("Registro: " + progress, 12, "Good"), 4);
-            if (!future)
+            if (!future || canEditPlan)
             {
                 if (editable && progress == "" && !entry.Complement)
                 {
@@ -447,10 +491,10 @@ namespace GymZ
                 AutomationProperties.SetName(view, "Ver exercício · " + exercise.Name);
                 AddChoice(options, view);
                 if (editable) AddChoice(options, Button(exercise.Type == 'A' ? "Registrar tempo" : "Registrar carga", () => LogDialog(date, index)));
-                if (editable && !Training.HasLog(item))
+                if (canEditPlan && !Training.HasLog(item))
                 {
                     AddChoice(options, Button("Trocar", () => EditExerciseList(date, index)));
-                    AddChoice(options, Button("Remover", () => Commit(() => training.Save(date).Items.RemoveAt(index), null)));
+                    AddChoice(options, Button("Remover", () => Commit(() => training.RemovePlanExercise(date, item.Id), null)));
                 }
                 Add(block, options, 9);
             }

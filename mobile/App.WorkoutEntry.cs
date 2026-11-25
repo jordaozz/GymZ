@@ -24,6 +24,7 @@ public partial class App
 
     private WorkoutDraft draft;
     private string draftId, draftDay, quickId, lastSavedId;
+    private DateTime lastSavedDay;
     private string draftStatus = "", entryError = "";
     private readonly Dictionary<string, string> fieldErrors = new();
     private bool autoRest, openingEntry;
@@ -74,6 +75,7 @@ public partial class App
             var view = page;
             var activeTab = tab;
             var entry = training.Get(day);
+            if (!training.CanRecordOn(day) || entry.Finalized || training.Makeup(day).HasValue) return;
             var item = entry.Items[index];
             var target = Catalog.ById[item.Id];
             WorkoutDraft restored = null;
@@ -114,7 +116,7 @@ public partial class App
     private void SuggestSeries(Series row, Session entry, Movement item, int index)
     {
         var current = item.Efforts?.LastOrDefault();
-        var prior = entry.Complement ? null : training.PreviousLoad(date, item.Id)?.Movement;
+        var prior = entry.Complement ? null : training.PreviousPerformance(date, item.Id)?.Movement;
         var previous = prior?.Efforts?.ElementAtOrDefault(index) ?? prior?.Efforts?.LastOrDefault();
         var kg = current?.Kilograms ?? previous?.Kilograms ?? (prior?.Load > 0 ? prior.Load : null);
         var reps = current?.RepsOrSeconds ?? previous?.RepsOrSeconds ?? (prior?.ActualReps > 0 ? prior.ActualReps : null);
@@ -203,7 +205,7 @@ public partial class App
             return;
         }
 
-        await TodayChange(() => {
+        await RecordChange(() => {
             if (unrecorded)
             {
                 var stored = training.Save(date).Items[editing];
@@ -225,9 +227,10 @@ public partial class App
         if (quick) CloseQuick();
         else if (page == Page.Log) Back();
         lastSavedId = id;
+        lastSavedDay = date;
         var next = training.Get(date).Items.FirstOrDefault(m => !m.Done);
         if (sessionDone) fieldFocus = "workout-finished";
-        else if (autoRest && !cardio && !unrecorded && efforts?.Count > pastRows && restTimer != null)
+        else if (date == Today && autoRest && !cardio && !unrecorded && efforts?.Count > pastRows && restTimer != null)
             await restTimer.Start(complete && next != null ? Between(item, next) : item.Rest, exercise.Name);
     }
 

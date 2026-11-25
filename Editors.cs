@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Windows;
 using System.Windows.Automation;
@@ -50,6 +49,28 @@ namespace GymZ
             return panel;
         }
 
+        private sealed class ChoiceButtons : StackPanel
+        {
+            public string Value { get; private set; }
+            public event Action Changed = delegate { };
+
+            public ChoiceButtons(string label, IEnumerable<Option> options, string value)
+            {
+                Value = value;
+                AutomationProperties.SetName(this, label);
+                Children.Add(Text(label, 13, "Muted", true));
+                var row = new WrapPanel();
+                foreach (var option in options)
+                {
+                    var choice = new RadioButton { Content = option.Label, Tag = option.Key, IsChecked = option.Key == value };
+                    choice.SetResourceReference(FrameworkElement.StyleProperty, "ChoiceChip");
+                    choice.Checked += delegate { Value = option.Key; Changed(); };
+                    AddChoice(row, choice);
+                }
+                Add(this, row, 5);
+            }
+        }
+
         private void ShowProfile()
         {
             var profile = training.At(training.Today);
@@ -67,30 +88,53 @@ namespace GymZ
             routine.Children.Add(Text("Dias de treino", 19, null, true));
             Add(routine, Text("Marque os dias em que você costuma treinar.", 13, "Muted"), 5);
             Add(routine, options, 11);
-            var split = Options(Training.SplitModes.Select(mode => Choice(mode.Key, mode.Value)), profile.Split ?? "auto");
-            Add(routine, Field("Divisão da semana", split), 12);
+            var split = new ChoiceButtons("Divisão da semana", Training.SplitModes.Select(mode => Choice(mode.Key, mode.Value)), profile.Split ?? "auto");
+            Add(routine, split, 12);
             var splitNote = Text("", 12, "Muted");
             Add(routine, splitNote, 7);
-            var themes = Training.DayThemes.Select(theme => Choice(theme.Key, theme.Value)).ToArray();
-            var dayThemes = new ComboBox[7];
+            var dayRoutines = Training.EditDayRoutines(profile);
             var themeFields = new FrameworkElement[7];
             for (int i = 0; i < days.Count; i++)
             {
-                dayThemes[i] = Options(new[] { Choice("", "Sugestão do GymZ") }.Concat(themes),
-                    profile.DayThemes == null ? "" : profile.DayThemes[i]);
-                themeFields[i] = Field(Training.DayNames[i], dayThemes[i]);
-                Add(routine, themeFields[i], 8);
+                int day = i;
+                var dayRoutine = dayRoutines[day];
+                var panel = new StackPanel();
+                panel.Children.Add(Text(Training.DayNames[day], 13, "Muted", true));
+                var actions = new WrapPanel();
+                var summary = Text("", 12, "Muted");
+                Button automatic = null, manual = null;
+                Action updateDay = () => {
+                    MarkChoiceButton(automatic, !dayRoutine.Manual);
+                    MarkChoiceButton(manual, dayRoutine.Manual);
+                    summary.Text = string.Join(", ", dayRoutine.Groups.Select(group => Catalog.Names[group]));
+                    summary.Visibility = dayRoutine.Manual ? Visibility.Visible : Visibility.Collapsed;
+                };
+                automatic = Button("Sugestão do GymZ", () => { dayRoutine.Manual = false; updateDay(); });
+                manual = Button("Escolher regiões manualmente", () => ShowRegionPicker(Training.DayNames[day], dayRoutine.Groups, groups => {
+                    dayRoutine.Manual = true;
+                    dayRoutine.Groups = groups;
+                    updateDay();
+                }));
+                AutomationProperties.SetName(automatic, "Sugestão do GymZ · " + Training.DayNames[day]);
+                AutomationProperties.SetName(manual, "Escolher regiões manualmente · " + Training.DayNames[day]);
+                AddChoice(actions, automatic);
+                AddChoice(actions, manual);
+                Add(panel, actions, 5);
+                Add(panel, summary, 3);
+                updateDay();
+                themeFields[i] = panel;
+                Add(routine, panel, 8);
             }
             Action updateSplit = () => {
-                string mode = Selected(split);
+                string mode = split.Value;
                 for (int i = 0; i < days.Count; i++)
                     themeFields[i].Visibility = mode == "groups" && days[i].IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
                 splitNote.Text = mode == "groups"
-                    ? "Escolha o foco de cada dia marcado. Deixe em Sugestão do GymZ para usar a divisão automática daquele dia."
+                    ? "Marque as regiões que quer treinar ou deixe o GymZ sugerir com base no seu perfil."
                     : mode == "full" ? "Cada sessão combina movimentos de pernas e superiores, variando a ênfase ao longo da semana."
                     : "O GymZ sugere sessões por região com quatro dias ou mais, ou quando há treinos em dias seguidos. Com até três dias espaçados, combina pernas e superiores.";
             };
-            split.SelectionChanged += delegate { updateSplit(); };
+            split.Changed += updateSplit;
             foreach (var day in days)
             {
                 day.Checked += delegate { updateSplit(); };
@@ -98,35 +142,42 @@ namespace GymZ
             }
             updateSplit();
             var goals = Catalog.Goals.Select(g => Choice(g.Key, g.Value));
-            if (firstUse) goals = new[] { Choice("", "Escolha seu objetivo") }.Concat(goals);
-            var goal = Options(goals, firstUse ? "" : profile.Goal);
+            var goal = new ChoiceButtons("Objetivo", goals, firstUse ? "" : profile.Goal);
             var focus = Options(Catalog.FocusOptions.Select(g => Choice(g.Key, g.Value)).Concat(Catalog.Groups.Select(g => Choice(g, Catalog.Names[g]))), profile.Focus);
-            var focusMode = Options(Catalog.FocusModes.Select(g => Choice(g.Key, g.Value)), profile.FocusMode);
-            var gear = Options(Catalog.ProfileGear.Select(g => Choice(g.Key, g.Value)), profile.Gear);
-            var cardio = Options(Catalog.ProfileCardio.Select(g => Choice(g.Key, g.Value)), profile.Cardio);
-            var level = Options(new[] { Choice("0", "Iniciante ou retomando"), Choice("1", "Intermediário / avançado") }, profile.Level.ToString());
-            var minutes = Options(new[] { 25, 30, 45, 60, 75 }.Select(m => Choice(m.ToString(), m + " minutos")), profile.Minutes.ToString());
+            var focusMode = new ChoiceButtons("Intensidade da prioridade", Catalog.FocusModes.Select(g => Choice(g.Key, g.Value)), profile.FocusMode);
+            var gear = new ChoiceButtons("Equipamento de musculação", Catalog.ProfileGear.Select(g => Choice(g.Key, g.Value)), profile.Gear);
+            var cardio = new ChoiceButtons("Equipamento de cardio", Catalog.ProfileCardio.Select(g => Choice(g.Key, g.Value)), profile.Cardio);
+            var level = new ChoiceButtons("Experiência", new[] { Choice("0", "Iniciante ou retomando"), Choice("1", "Intermediário / avançado") }, profile.Level.ToString());
+            var minutes = new ChoiceButtons("Tempo por treino", new[] { 25, 30, 45, 60, 75, profile.Minutes }.Distinct().OrderBy(m => m)
+                .Select(m => Choice(m.ToString(), m + " min")), profile.Minutes.ToString());
             var name = new TextBox { Text = profile.Name, MaxLength = 48 };
             var weight = new TextBox { Text = OptionalNumber(profile.Weight) };
             var height = new TextBox { Text = OptionalNumber(profile.Height) };
             var plan = new StackPanel();
             plan.Children.Add(Text("Personalização do plano", 19, null, true));
-            Add(plan, Columns(Field("Objetivo", goal), Field("Região prioritária", focus)), 12);
-            Add(plan, Columns(Field("Equipamento de musculação", gear), Field("Equipamento de cardio", cardio)), 12);
-            Add(plan, Columns(Field("Intensidade da prioridade", focusMode), Field("Experiência", level)), 12);
-            Add(plan, Field("Tempo por treino", minutes), 12);
+            Add(plan, goal, 12);
+            Add(plan, Field("Região prioritária", focus), 8);
+            Add(plan, focusMode, 8);
+            Add(plan, gear, 12);
+            var equipmentNote = Text("Essa opção deixa de fora elásticos, exercícios no solo e agachamentos sem máquina.", 12, "Muted");
+            Add(plan, equipmentNote, 8);
+            Add(plan, cardio, 8);
+            Add(plan, level, 12);
+            Add(plan, minutes, 12);
             var explanation = Text("", 12, "Muted");
             Action updateExplanation = () => {
                 focusMode.IsEnabled = Selected(focus) != "";
-                var choice = new Profile { Goal = Selected(goal), Cardio = Selected(cardio) };
+                equipmentNote.Visibility = gear.Value == "machines-dumbbell" ? Visibility.Visible : Visibility.Collapsed;
+                var choice = new Profile { Goal = goal.Value, Cardio = cardio.Value };
                 if (Training.WantsAutoCardio(choice))
                     explanation.Text = choice.Goal == "endurance" ? "O cardio vem primeiro quando a prioridade é melhorar o fôlego." :
                         "O cardio moderado entra depois da musculação nas sessões selecionadas pelo plano.";
                 else explanation.Text = "O plano vai priorizar a musculação. Você pode acrescentar cardio manualmente no treino do dia.";
             };
             focus.SelectionChanged += delegate { updateExplanation(); };
-            goal.SelectionChanged += delegate { updateExplanation(); };
-            cardio.SelectionChanged += delegate { updateExplanation(); };
+            goal.Changed += updateExplanation;
+            gear.Changed += updateExplanation;
+            cardio.Changed += updateExplanation;
             updateExplanation();
             Add(plan, explanation, 9);
 
@@ -142,19 +193,19 @@ namespace GymZ
             var save = Button(firstUse ? "Montar meu plano" : "Salvar perfil e atualizar plano", () => {
                 var checkedDays = Enumerable.Range(0, 7).Where(i => days[i].IsChecked == true).ToArray();
                 if (checkedDays.Length == 0) throw new InvalidOperationException("Selecione pelo menos um dia de treino.");
-                if (Selected(goal) == "") throw new InvalidOperationException("Escolha seu objetivo de treino.");
+                if (goal.Value == "") throw new InvalidOperationException("Escolha seu objetivo de treino.");
                 decimal weightValue = Number(weight, "o peso", 20, 600);
                 decimal heightValue = Number(height, "a altura em cm", 80, 300);
                 if (firstUse && (weightValue == 0 || heightValue == 0)) throw new InvalidOperationException("Preencha peso e altura para montar seu primeiro plano.");
                 string displayName = name.Text.Trim();
                 if (displayName == displayName.ToLower(Training.Pt)) displayName = Training.Pt.TextInfo.ToTitleCase(displayName);
                 var updated = new Profile {
-                    Days = checkedDays, Goal = Selected(goal), Focus = Selected(focus), Gear = Selected(gear), Level = int.Parse(Selected(level)),
-                    Minutes = int.Parse(Selected(minutes)), Weight = weightValue, Height = heightValue,
-                    FocusMode = Selected(focusMode), Name = displayName, Cardio = Selected(cardio), Split = Selected(split),
-                    DayThemes = dayThemes.Select(Selected).ToArray()
+                    Days = checkedDays, Goal = goal.Value, Focus = Selected(focus), Gear = gear.Value, Level = int.Parse(level.Value),
+                    Minutes = int.Parse(minutes.Value), Weight = weightValue, Height = heightValue,
+                    FocusMode = focusMode.Value, Name = displayName, Cardio = cardio.Value, Split = split.Value,
+                    DayRoutines = dayRoutines
                 };
-                Commit(() => training.ChangeProfile(updated), "Perfil salvo. O plano usa suas preferências a partir de hoje.", false);
+                Commit(() => training.ChangeProfile(updated), "Perfil salvo. Os próximos treinos seguem a divisão atualizada.", false);
                 Go(Section.Workouts);
             }, "Primary");
             Add(content, save, 13);
@@ -237,7 +288,7 @@ namespace GymZ
 
             var backups = new StackPanel();
             backups.Children.Add(Text("Backup e restauração", 19, null, true));
-            Add(backups, Text("O backup cria uma pasta com o executável, o perfil, as preferências e o histórico. Para usar a cópia em outro computador, abra o GymZ e restaure o arquivo da pasta.", 13, "Muted"), 6);
+            Add(backups, Text("O backup guarda seu perfil, preferências e histórico em um arquivo JSON. Em outro computador ou celular, abra o GymZ e restaure esse arquivo.", 13, "Muted"), 6);
             var actions = new WrapPanel();
             AddChoice(actions, Button("Salvar backup", SaveBackup, "Primary"));
             AddChoice(actions, Button("Restaurar backup", RestoreBackup));
@@ -247,7 +298,7 @@ namespace GymZ
 
             var about = new StackPanel();
             about.Children.Add(Text("Sobre o GymZ", 19, null, true));
-            Add(about, Text("Versão " + Version + " · Grátis, offline e sem cadastro.", 13, "Muted"), 6);
+            Add(about, Text("Versão " + BuildInfo.Version + " · Grátis, offline e sem cadastro.", 13, "Muted"), 6);
             var links = new WrapPanel();
             AddChoice(links, Button("Treino de força · ACSM", () => OpenLink(Catalog.Acsm)));
             AddChoice(links, Button("Biblioteca de exercícios · ACE", () => OpenLink(Catalog.Ace)));
@@ -274,7 +325,7 @@ namespace GymZ
             {
                 picker.Description = "Escolha onde criar a pasta com o backup do GymZ.";
                 if (picker.ShowDialog() != Forms.DialogResult.OK) return;
-                string folder = storage.Backup(picker.SelectedPath, Data, Assembly.GetExecutingAssembly().Location);
+                string folder = storage.Backup(picker.SelectedPath, Data);
                 Notify("Backup salvo em " + folder);
                 MessageBox.Show(window, "Guarde a pasta completa para restaurar o GymZ em outro computador.\n\n" + folder, "Backup salvo", MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -308,7 +359,13 @@ namespace GymZ
             Notify("Backup restaurado. A cópia anterior está na pasta Backups.");
         }
 
-        private static void OpenLink(string address) { Process.Start(new ProcessStartInfo(address) { UseShellExecute = true }); }
+        private static void OpenLink(string address)
+        {
+            Uri link;
+            if (!Uri.TryCreate(address, UriKind.Absolute, out link) || link.Scheme != Uri.UriSchemeHttps || link.UserInfo.Length != 0)
+                throw new InvalidOperationException("O endereço da referência precisa ser um link HTTPS válido.");
+            Process.Start(new ProcessStartInfo(link.AbsoluteUri) { UseShellExecute = true });
+        }
 
         private Window Dialog(string title, out StackPanel panel, double width = 570)
         {
@@ -332,35 +389,76 @@ namespace GymZ
             return dialog;
         }
 
+        private void MarkChoiceButton(Button button, bool selected)
+        {
+            if (selected) button.Style = (Style)window.FindResource("Selected");
+            else button.ClearValue(FrameworkElement.StyleProperty);
+            AutomationProperties.SetItemStatus(button, selected ? "Selecionado" : "");
+        }
+
+        private void ShowRegionPicker(string day, IEnumerable<string> initialGroups, Action<string[]> apply)
+        {
+            StackPanel panel;
+            var dialog = Dialog("Escolher regiões", out panel, 440);
+            panel.Children.Add(Text("Escolher regiões", 23, null, true));
+            Add(panel, Text(day, 14, "Muted"), 4);
+            var choices = new WrapPanel();
+            var buttons = Catalog.Groups.Select(group => new System.Windows.Controls.Primitives.ToggleButton {
+                Content = Catalog.Names[group], Tag = group, IsChecked = initialGroups.Contains(group)
+            }).ToArray();
+            foreach (var button in buttons)
+            {
+                button.SetResourceReference(FrameworkElement.StyleProperty, "ChoiceChip");
+                AddChoice(choices, button);
+            }
+            Add(panel, choices, 15);
+            var confirm = Button("Confirmar regiões", () => {
+                apply(buttons.Where(button => button.IsChecked == true).Select(button => (string)button.Tag).ToArray());
+                dialog.Close();
+            }, "Primary");
+            Action update = () => { confirm.IsEnabled = buttons.Any(button => button.IsChecked == true); };
+            foreach (var button in buttons)
+            {
+                button.Checked += delegate { update(); };
+                button.Unchecked += delegate { update(); };
+            }
+            update();
+            var actions = new WrapPanel();
+            AddChoice(actions, confirm);
+            AddChoice(actions, Button("Cancelar", dialog.Close));
+            Add(panel, actions, 11);
+            dialog.ShowDialog();
+        }
+
         private void EditExerciseList(DateTime date, int index)
         {
-            training.RequireRecordingDay(date);
             var session = training.Get(date);
-            if (session.Finalized) throw new InvalidOperationException("Reabra o treino antes de alterar a lista de exercícios.");
-            var profile = training.At(date);
+            if (!training.CanEditPlan(date, session)) throw new InvalidOperationException("Abra uma ficha disponível para editar os exercícios.");
             var original = index < 0 ? null : session.Items[index];
             var exercise = original == null ? null : Catalog.ById[original.Id];
             string title = original == null ? "Adicionar exercício" : "Trocar exercício";
             StackPanel panel;
             var dialog = Dialog(title, out panel);
             panel.Children.Add(Text(title, 23, null, true));
+            if (date > training.Today) Add(panel, Text(DayAndDate(date), 13, "Muted"), 5);
             Add(panel, Text(original == null ? "Escolha uma região para adicionar ao treino deste dia." : exercise.Name + " · " + Catalog.Names[exercise.Group], 13, "Muted"), 6);
-            var groups = new[] { Choice("", "Todas as regiões") }.Concat(Catalog.Names.Select(g => Choice(g.Key, g.Value))).ToList();
-            if (original != null) groups.Insert(0, Choice("same", "Equivalentes e mesmo grupo"));
-            var selector = Options(groups, exercise == null ? "" : "same");
+            var groups = new[] { Choice("", "Todas as regiões") }.Concat(Catalog.Names.Select(g => Choice(g.Key, g.Value)));
+            var selector = Options(groups, "");
+            var scope = new ChoiceButtons("Mostrar", Training.SwapScopes.Select(option => Choice(option.Key, option.Value)), "workout");
             var gear = Options(new[] { Choice("", "Todo equipamento") }.Concat(Catalog.GearNames.Select(g => Choice(g.Key, g.Value))), "");
             var field = new TextBox();
-            var list = new ComboBox();
-            var suggestion = Text("", 13, "Muted");
-            Add(panel, Columns(Field("Região", selector), Field("Buscar pelo nome", field)), 12);
-            Add(panel, Field("Equipamento alternativo", gear), 10);
-            Add(panel, Field("Exercício", list), 12);
-            Add(panel, suggestion, 8);
+            var list = new StackPanel();
+            if (original != null) Add(panel, scope, 10);
+            var filters = new StackPanel();
+            Add(filters, Columns(Field("Região", selector), Field("Buscar pelo nome", field)), 8);
+            Add(filters, Field("Equipamento alternativo", gear), 8);
+            if (original == null) Add(panel, filters, 4);
+            else Add(panel, new Expander { Header = Text("Buscar e filtrar", 13, "Accent", true), Content = filters }, 7);
             var avoid = new CheckBox { Content = "Evitar este exercício nos próximos planos" };
-            var temporary = new CheckBox { Content = "Trocar só neste treino" };
+            var temporary = new CheckBox { Content = "Trocar só nesta ficha", IsChecked = date != training.Today };
             if (original != null)
             {
-                Add(panel, Text("O GymZ aprende com suas escolhas. Para uma máquina ocupada, use a troca só neste treino.", 12, "Muted"), 10);
+                Add(panel, Text("Você pode usar a troca só nesta ficha ou deixar o GymZ aprender com ela.", 12, "Muted"), 10);
                 Add(panel, temporary, 4);
                 Add(panel, avoid, 4);
                 temporary.Checked += delegate { avoid.IsChecked = false; };
@@ -368,54 +466,88 @@ namespace GymZ
             }
 
             Action<Exercise> apply = chosen => {
-                Commit(() => {
-                    var entry = training.Save(date);
-                    var newItem = training.PrescribeForSession(date, entry, chosen, original != null && original.Priority && chosen.Group == exercise.Group);
-                    if (index < 0) entry.Items.Add(newItem);
-                    else entry.Items[index] = newItem;
-                    Training.OrderCardio(entry);
-                    if (original != null) training.LearnSwap(exercise.Id, chosen.Id, temporary.IsChecked == true);
-                    if (original != null && avoid.IsChecked == true) training.Avoid(exercise.Id);
-                }, index < 0 ? "Exercício adicionado." : "Exercício substituído.");
+                Commit(() => training.EditPlanExercise(date, original == null ? null : original.Id, chosen,
+                    temporary: temporary.IsChecked == true, avoid: avoid.IsChecked == true), index < 0 ? "Exercício adicionado." : "Exercício substituído.");
                 dialog.Close();
             };
 
             var actions = new WrapPanel();
-            var save = Button(index < 0 ? "Adicionar exercício" : "Confirmar troca", () => {
-                if (Selected(list) != "") apply(Catalog.ById[Selected(list)]);
-            }, "Primary");
-            var auto = Button("Trocar automaticamente", () => {
-                if (Selected(list) != "") apply(Catalog.ById[((Option)list.Items[0]).Key]);
-            }, "Selected");
-            AddChoice(actions, save);
-            if (index >= 0) AddChoice(actions, auto);
+            Exercise best = null;
+            var auto = Button("Trocar automaticamente", () => { if (best != null) apply(best); }, "Selected");
+            if (original != null) AddChoice(actions, auto);
             AddChoice(actions, Button("Voltar", dialog.Close));
             Add(panel, actions, 12);
+            Add(panel, list, 8);
             Action filter = () => {
                 string group = Selected(selector);
                 string equipment = Selected(gear);
                 string query = Normalize(field.Text.Trim());
-                var results = (group == "same" ? training.Alternatives(date, session, original) : Catalog.All.AsEnumerable())
-                    .Where(e => training.Eligible(e, profile) && training.FitsSession(date, session, e) && !session.Items.Any(m => m.Id == e.Id) &&
-                        (group == "" || group == "same" || e.Group == group) && (equipment == "" || e.Gear == equipment) &&
+                var choices = original == null ? training.WorkoutChoices(date, session) : training.SwapChoices(date, session, original, scope.Value == "workout");
+                var results = choices.Where(e =>
+                        (group == "" || e.Group == group) && (equipment == "" || e.Gear == equipment) &&
                         (query == "" || Normalize(e.Name).Contains(query))).ToList();
-                list.ItemsSource = results.Select(e => Choice(e.Id, e.Name)).ToList();
-                list.SelectedIndex = results.Count > 0 ? 0 : -1;
-                save.IsEnabled = auto.IsEnabled = results.Count > 0;
+                best = exercise == null ? null : results.FirstOrDefault(e => e.Group == exercise.Group);
+                auto.IsEnabled = best != null;
+                list.Children.Clear();
+                if (results.Count == 0) list.Children.Add(Text("Nenhum exercício disponível para esses filtros.", 13, "Muted"));
+                foreach (var region in results.GroupBy(choice => choice.Group))
+                {
+                    var heading = Catalog.Names[region.Key];
+                    if (exercise != null && region.Key == exercise.Group) heading = "Mesma região · " + heading;
+                    Add(list, Text(heading, 15, null, true), 9);
+                    foreach (var choice in region) Add(list, ExerciseChoiceCard(choice, exercise, apply), 5);
+                }
             };
-            list.SelectionChanged += delegate {
-                string id = Selected(list);
-                if (id == "") { suggestion.Text = "Nenhum exercício disponível para esses filtros."; return; }
-                var chosen = Catalog.ById[id];
-                var match = exercise == null ? "" : Training.Equivalent(exercise, chosen) ? "Mesma função  ·  " : exercise.Group == chosen.Group ?
-                    "Mesmo grupo, movimento diferente  ·  " : "Outra região  ·  ";
-                suggestion.Text = match + Catalog.Names[chosen.Group] + "  ·  " + Catalog.GearNames[chosen.Gear];
+            scope.Changed += delegate {
+                if (selector.SelectedIndex != 0) selector.SelectedIndex = 0;
+                else filter();
             };
             selector.SelectionChanged += delegate { filter(); };
             gear.SelectionChanged += delegate { filter(); };
             field.TextChanged += delegate { filter(); };
             filter();
             dialog.ShowDialog();
+        }
+
+        private void EditWorkoutNotes(DateTime date)
+        {
+            training.RequireRecordingDay(date);
+            StackPanel panel;
+            var dialog = Dialog("Observação do treino", out panel);
+            panel.Children.Add(Text(DayAndDate(date), 17, null, true));
+            var editor = new TextBox {
+                Text = training.Get(date).Notes ?? "", MaxLength = Training.NotesLimit, AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap, MinHeight = 100, VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+            Add(panel, Field("Observação do treino", editor), 9);
+            var actions = new WrapPanel();
+            AddChoice(actions, Button("Salvar observação", () => {
+                Commit(() => training.SaveNotes(date, editor.Text), "Observação salva.");
+                dialog.Close();
+            }, "Primary"));
+            AddChoice(actions, Button("Cancelar", dialog.Close));
+            Add(panel, actions, 11);
+            dialog.ShowDialog();
+        }
+
+        private Button ExerciseChoiceCard(Exercise choice, Exercise original, Action<Exercise> apply)
+        {
+            var image = ExerciseThumbnail(choice, 56);
+            image.Margin = new Thickness(0, 0, 10, 0);
+            DockPanel.SetDock(image, Dock.Left);
+            var details = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            details.Children.Add(Text(choice.Name, 14, null, true));
+            var equipment = Catalog.GearNames[choice.Gear];
+            if (original != null && Training.Equivalent(original, choice)) equipment += " · Mesma função";
+            Add(details, Text(equipment, 12, "Muted"), 4);
+            var row = new DockPanel();
+            row.Children.Add(image);
+            row.Children.Add(details);
+            var button = Button((original == null ? "Adicionar " : "Escolher ") + choice.Name, () => apply(choice));
+            button.Content = row;
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            return button;
         }
 
         private void ScheduleExerciseDialog(Exercise exercise)
@@ -438,11 +570,7 @@ namespace GymZ
                 Add(panel, Text("Exercício intermediário. Confira a técnica e comece com uma carga leve.", 13, "Warn"), 7);
             var save = Button("Adicionar", () => {
                 if (date != training.Today) throw new InvalidOperationException("O dia mudou. Abra o treino de hoje para adicionar o exercício.");
-                Commit(() => {
-                    var entry = training.Save(date);
-                    entry.Items.Add(training.PrescribeForSession(date, entry, exercise, false));
-                    Training.OrderCardio(entry);
-                }, "Exercício adicionado.", false);
+                Commit(() => training.EditPlanExercise(date, null, exercise, allowAdvanced: true), "Exercício adicionado.", false);
                 dialog.Close();
                 Go(Section.Workouts);
             }, "Primary");
@@ -461,10 +589,10 @@ namespace GymZ
             Add(panel, Text("Os primeiros dias da lista dão preferência a mais espaço entre os treinos. A frequência será atualizada quando você registrar a reposição.", 13, "Muted"), 6);
             var options = training.MakeupOptions(date).ToList();
             if (options.Count == 0) return;
-            var choices = Options(options.Select(d => Choice(Training.Key(d), Training.DayNames[Training.Day(d)] + " · " + Range(d))), Training.Key(options[0]));
-            Add(panel, Field("Dia livre para repor", choices), 12);
+            var choices = new ChoiceButtons("Dia livre para repor", options.Select(d => Choice(Training.Key(d), Training.DayNames[Training.Day(d)] + " · " + Range(d))), Training.Key(options[0]));
+            Add(panel, choices, 12);
             var save = Button("Agendar reposição", () => {
-                var destination = Training.Date(Selected(choices));
+                var destination = Training.Date(choices.Value);
                 Commit(() => training.Compensate(date, destination), "Reposição agendada para " + Range(destination) + ".");
                 dialog.Close();
             }, "Primary");
@@ -498,7 +626,7 @@ namespace GymZ
                     string[] day = { Range(date), Training.DayNames[i], StatusFor(date, session).Label, session.Title };
                     var completed = session.Items.Where(m => m.Done && date <= training.Today).ToList();
                     var pending = training.PendingExercises(date, session);
-                    if (completed.Count == 0 && pending.Count == 0) csv.WriteLine(string.Join(";", day.Select(CsvCell)) + ";;;;;;;;;");
+                    if (completed.Count == 0 && pending.Count == 0) csv.WriteLine(string.Join(";", day.Select(Training.CsvCell)) + ";;;;;;;;;");
                     foreach (var item in completed)
                     {
                         var ex = Catalog.ById[item.Id];
@@ -507,24 +635,19 @@ namespace GymZ
                             OptionalNumber(item.ActualSets), OptionalNumber(item.ActualReps), ex.Type == 'A' ? "min" : ex.Type == 'T' ? "s" : "repetições",
                             peak.HasValue ? peak.Value.ToString("0.##", Training.Pt) : "",
                             item.Efforts == null ? "" : string.Join(" / ", item.Efforts.Select((set, index) => "Série " + (index + 1) + " · " + SetLabel(set, ex))), "Concluído" };
-                        csv.WriteLine(string.Join(";", day.Concat(fields).Select(CsvCell)));
+                        csv.WriteLine(string.Join(";", day.Concat(fields).Select(Training.CsvCell)));
                     }
                     foreach (var item in pending)
                     {
                         var ex = Catalog.ById[item.Id];
                         string[] fields = { ex.Name, Catalog.Names[ex.Group], string.Join(", ", ex.Other.Select(g => Catalog.Names[g])),
                             "", "", "", "", "", "Ficou pendente" };
-                        csv.WriteLine(string.Join(";", day.Concat(fields).Select(CsvCell)));
+                        csv.WriteLine(string.Join(";", day.Concat(fields).Select(Training.CsvCell)));
                     }
                 }
             }
             Notify("Relatório exportado para " + save.FileName);
         }
 
-        private static string CsvCell(string value)
-        {
-            if (value.Length > 0 && "=+-@\t\r".Contains(value[0])) value = "'" + value;
-            return "\"" + value.Replace("\"", "\"\"") + "\"";
-        }
     }
 }

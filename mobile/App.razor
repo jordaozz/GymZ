@@ -24,7 +24,7 @@ else
             <RestTimer @ref="restTimer" Day="Today" />
         </header>
         <main class="main" id="main" aria-busy="@(busy ? "true" : "false")">
-            @if (error != "") { <p class="callout bad" role="alert">@error</p> }
+            @if (error != "") { <p class="callout bad" id="app-error" role="alert" tabindex="-1">@error</p> }
             @if (notice != "") { <p class="callout good" role="status">@notice</p> }
             @switch (page)
             {
@@ -37,6 +37,8 @@ else
                 case Page.Makeup: @Makeup() break;
                 case Page.Plan: @Plan() break;
                 case Page.Coverage: @MuscleDetail() break;
+                case Page.Regions: @RegionPicker() break;
+                case Page.Notes: @Notes() break;
                 default:
                     @switch (tab)
                     {
@@ -71,25 +73,27 @@ else
 }
 
 @code {
-    private RenderFragment Heading(string title, string subtitle = null) => @<div class="heading">
+    private RenderFragment Heading(string title, string subtitle = null, string id = null) => @<div class="heading">
         @if (subtitle != null) { <p class="subheading">@subtitle</p> }
-        <h1 tabindex="-1">@title</h1>
+        <h1 id="@id" tabindex="-1">@title</h1>
     </div>;
 
     private RenderFragment Workout(DateTime day) => @<div>
         @{
             var entry = training.Get(day);
             bool today = day == Today;
-            bool tracked = training.IsTrackedDate(day);
+            bool canRecord = training.CanRecordOn(day);
             bool workout = entry.Scheduled || entry.Extra;
             bool transferred = training.Makeup(day).HasValue;
             bool complete = Training.Complete(entry);
-            bool editable = today && workout && !transferred && !complete;
+            bool editable = canRecord && workout && !transferred && !complete;
+            bool canEditPlan = training.CanEditPlan(day, entry);
+            bool canChooseRegions = training.CanChoosePlanRegions(day, entry);
             var count = entry.Items.Count(m => m.Done);
             var athlete = training.At(day).Name;
             var next = today && !transferred && !complete ? entry.Items.FirstOrDefault(m => !m.Done) : null;
         }
-        @Heading(today ? "Treino de hoje" : "Treino do dia", NiceDate(day))
+        @Heading(today ? "Treino de hoje" : "Treino do dia", NiceDate(day), "plan-heading")
         @if (today && complete && !review)
         {
             <section class="hero completed" id="workout-finished" tabindex="-1">
@@ -104,10 +108,10 @@ else
             <section class="hero">
                 <div class="hero-mark"><Icon Name="moon" /></div>
                 <h2>@entry.Title</h2>
-                @if (today && tracked)
+                @if (canRecord)
                 {
-                    <p>Se for à academia hoje, monte uma sessão leve que considere os próximos treinos.</p>
-                    <button class="primary" @onclick='() => TodayChange(() => training.EnableExtra(day), "Treino extra montado.")' disabled="@busy">Montar treino extra</button>
+                    <p>@(today ? "Se for à academia hoje, monte uma sessão leve que considere os próximos treinos." : "Se você treinou nesta data, monte uma ficha extra e ajuste os exercícios ao que fez.")</p>
+                    <button class="primary" @onclick='() => RecordChange(() => training.EnableExtra(day), "Treino extra montado.")' disabled="@busy">@(today ? "Montar treino extra" : "Registrar treino extra")</button>
                 }
             </section>
         }
@@ -116,7 +120,7 @@ else
             <section class="hero program">
                 <div class="hero-top"><span>@(entry.Complement ? "Sessão complementar" : entry.MakeupFor != "" ? "Reposição" : athlete != "" ? "Treino de " + athlete : "Sessão planejada")</span><Icon Name="workout" /></div>
                 <h2>@entry.Title</h2>
-                @if (today && !transferred)
+                @if (canRecord && !transferred)
                 {
                     <div class="meter-label"><span>@count de @entry.Items.Count feitos</span><span>@(entry.Finalized ? "Finalizado" : "")</span></div>
                     <progress max="@Math.Max(1,entry.Items.Count)" value="@count" aria-label="Exercícios concluídos"></progress>
@@ -127,7 +131,30 @@ else
                 }
                 else { <p>@Status(day, entry) · @entry.Items.Count exercícios</p> }
             </section>
-            @if (day > Today) { <p class="callout">Os exercícios e a presença ficam disponíveis para registro no dia previsto.</p> }
+            @if (day > Today)
+            {
+                @if (entry.CustomizedPlan) { <p class="plain-note accent">Ficha personalizada para esta data</p> }
+                <p class="callout">Presença, cargas e conclusão podem ser registradas na data do treino.</p>
+                @if (canEditPlan)
+                {
+                    <div class="actions compact">
+                        @if (canChooseRegions)
+                        {
+                            <button class="secondary" @onclick="() => OpenWorkoutRegions(day, entry)">Escolher regiões</button>
+                        }
+                        <button class="secondary" @onclick="() => OpenEdit(-1)"><Icon Name="add" /> Adicionar exercício</button>
+                        @if (canChooseRegions && entry.CustomizedPlan)
+                        {
+                            <button class="subtle" @onclick="() => RestoreProfilePlan(day)" disabled="@busy">Voltar ao plano do perfil</button>
+                        }
+                    </div>
+                }
+            }
+            else if (!today)
+            {
+                <p class="callout">@(canRecord ? "Registre o que fez neste dia até o fim da semana." : "Semana fechada · Treino disponível para consulta.")</p>
+                @AttendanceActions(day, entry)
+            }
             @if (transferred)
             {
                 var makeup = training.Makeup(day).Value;
@@ -151,11 +178,11 @@ else
             {
                 <div class="callout flow"><span>Falta registrada.</span><button class="link-button" @onclick="() => Open(Tab.Attendance)">Ver presença</button></div>
             }
-            @if (today && review && complete)
+            @if (canRecord && complete && (!today || review))
             {
                 <div class="actions compact">
-                    <button class="secondary" @onclick="() => review = false">Voltar à conclusão</button>
-                    @if (entry.Finalized) { <button class="subtle" @onclick='() => TodayChange(() => training.Reopen(day), "Treino reaberto.")'>Reabrir treino</button> }
+                    @if (today) { <button class="secondary" @onclick="() => review = false">Voltar à conclusão</button> }
+                    @if (entry.Finalized) { <button class="subtle" @onclick='() => RecordChange(() => training.Reopen(day), "Treino reaberto.")'>Reabrir treino</button> }
                 </div>
             }
             @foreach (var pair in entry.Items.Select((item,index) => (item,index)))
@@ -164,7 +191,8 @@ else
                 var i = pair.index;
                 var ex = Catalog.ById[item.Id];
                 var previous = training.PreviousLoad(day, item.Id)?.Peak;
-                bool canMark = today && workout && !transferred && !entry.Finalized && (!complete || review);
+                bool canMark = canRecord && workout && !transferred && !entry.Finalized && (!complete || review || !today);
+                bool justSaved = lastSavedDay == day && lastSavedId == item.Id;
                 <article id="@CardId(item.Id)" tabindex="-1" class="card movement @(item.Done ? "done" : next == item ? "next-movement" : "")" @key="item.Id">
                     <div class="movement-head">
                         @Thumb(ex)
@@ -216,11 +244,11 @@ else
                     }
                     @if (item.ActualSets > 0)
                     {
-                        <p class="plain-note @(lastSavedId == item.Id ? "positive" : "")" role="@(lastSavedId == item.Id ? "status" : null)">
+                        <p class="plain-note @(justSaved ? "positive" : "")" role="@(justSaved ? "status" : null)">
                             <strong>@item.ActualSets de @item.Sets séries registradas</strong>
                         </p>
                     }
-                    else if (lastSavedId == item.Id)
+                    else if (justSaved)
                     {
                         <p class="plain-note positive" role="status">@(item.Done ? "Exercício concluído." : "Registro salvo.")</p>
                     }
@@ -238,26 +266,37 @@ else
                         @if (canMark && !complete)
                         {
                             <button class="secondary" @onclick="() => OpenLog(i)" disabled="@openingEntry">@(ex.Type == 'A' ? "Tempo" : "Carga")</button>
-                            @if (!Training.HasLog(item)) { <button class="subtle" @onclick="() => OpenEdit(i)">Trocar</button> }
                         }
                         else { <button class="subtle" @onclick="() => OpenHistory(ex, true)">Evolução</button> }
+                        @if (canEditPlan && !Training.HasLog(item)) { <button class="subtle" @onclick="() => OpenEdit(i)">Trocar</button> }
                     </div>
                 </article>
             }
             @if (editable)
             {
-                @if (entry.Items.Count == 0) { <p class="callout">Adicione um exercício para montar o treino de hoje.</p> }
+                @if (entry.Items.Count == 0) { <p class="callout">Adicione um exercício para montar a ficha.</p> }
                 <div class="actions compact">
                     <button class="secondary" @onclick="() => OpenEdit(-1)"><Icon Name="add" /> Exercício</button>
                     @if (Training.Present(entry) && entry.Items.Count > 0)
                     {
                         <button class="primary" @onclick="Finish" disabled="@busy">Finalizar treino</button>
                     }
-                    @if (entry.Complement && !entry.Items.Any(Training.HasLog))
+                    @if (entry.Complement && !entry.Items.Any(Training.HasLog) && string.IsNullOrEmpty(entry.Notes))
                     {
-                        <button class="subtle" @onclick="() => TodayChange(() => training.CancelComplement(day))">Cancelar extra</button>
+                        <button class="subtle" @onclick="() => RecordChange(() => training.CancelComplement(day))">Cancelar extra</button>
                     }
                 </div>
+            }
+            @if (!string.IsNullOrEmpty(entry.Notes) || (canRecord && !transferred))
+            {
+                <section class="card workout-notes">
+                    <h2>Observação do treino</h2>
+                    @if (!string.IsNullOrEmpty(entry.Notes)) { <p>@entry.Notes</p> }
+                    @if (canRecord && !transferred)
+                    {
+                        <button class="subtle" @onclick="() => OpenNotes(day)">@(string.IsNullOrEmpty(entry.Notes) ? "Adicionar observação" : "Editar observação")</button>
+                    }
+                </section>
             }
             @if (day <= Today && entry.Scheduled && !Training.Present(entry) && !transferred && training.MakeupOptions(day).Any())
             {
@@ -337,12 +376,31 @@ else
         </div>
         @{
             var report = training.Report(week);
+            var current = Training.Monday(Today);
+            var pending = week == current ? training.PendingAttendance().ToList() : new List<DateTime>();
         }
         <div class="metrics">
             @Metric("Frequência", report.Rate is { } rate ? rate + "%" : "—")
             @Metric("Presenças", report.Attended.ToString())
             @Metric("Faltas", report.Missed.ToString())
         </div>
+        @if (week == current)
+        {
+            <p class="plain-note">Registre os treinos desta semana até domingo.</p>
+            @if (pending.Count > 0)
+            {
+                <section class="card">
+                    <h2>Treinos sem registro</h2>
+                    <div class="actions compact">
+                        @foreach (var day in pending)
+                        {
+                            <button class="secondary" @onclick="() => ViewDate(day)">@Training.DayShort[Training.Day(day)] @ShortDate(day)</button>
+                        }
+                    </div>
+                </section>
+            }
+        }
+        else if (week < current) { <p class="plain-note">Semana fechada · Histórico disponível para consulta.</p> }
         <div class="rows">
             @foreach (var day in DaysOf(week))
             {
@@ -352,16 +410,16 @@ else
                     <div class="row-head">
                         <div class="date-tile"><small>@Training.DayShort[Training.Day(day)]</small><strong>@day.Day</strong></div>
                         <button class="flat-label" @onclick="() => ViewDate(day)"><strong>@entry.Title</strong><span>@status</span></button>
-                        <button class="icon-button" aria-label="@($"Ver treino de {ShortDate(day)}")" @onclick="() => ViewDate(day)"><Icon Name="next" /></button>
+                        @if (day > Today && training.CanEditPlan(day, entry))
+                        {
+                            <button class="secondary edit-upcoming" aria-label="@($"Editar ficha de {ShortDate(day)}")" @onclick="() => ViewDate(day)">Editar ficha</button>
+                        }
+                        else
+                        {
+                            <button class="icon-button" aria-label="@($"Ver treino de {ShortDate(day)}")" @onclick="() => ViewDate(day)"><Icon Name="next" /></button>
+                        }
                     </div>
-                    @if (day == Today && training.IsTrackedDate(day) && (entry.Scheduled || entry.Extra) && training.Makeup(day) == null && !Training.Complete(entry))
-                    {
-                        <div class="actions compact">
-                            @if (!Training.Present(entry)) { <button class="secondary" disabled="@busy" @onclick='() => SetAttendance(day, "present")'>Treinei</button> }
-                            @if (entry.Scheduled && !Training.Present(entry) && entry.Attendance != "missed") { <button class="secondary" disabled="@busy" @onclick='() => SetAttendance(day, "missed")'>Faltei</button> }
-                            @if (entry.Attendance != "") { <button class="subtle" disabled="@busy" @onclick='() => SetAttendance(day, "")'>Limpar registro manual</button> }
-                        </div>
-                    }
+                    @if (entry.Scheduled || entry.Extra || day == Today || entry.Attendance != "") { @AttendanceActions(day, entry) }
                     @if (training.Makeup(day) is { } replacement)
                     {
                         <button class="link-button" @onclick="() => ViewDate(replacement)">Ver reposição em @ShortDate(replacement)</button>
@@ -373,6 +431,32 @@ else
                 </article>
             }
         </div>
+    </div>;
+
+    private RenderFragment AttendanceActions(DateTime day, Session entry) => @<div>
+        @if (training.CanRecordOn(day) && training.Makeup(day) == null && !Training.Complete(entry))
+        {
+            bool present = Training.Present(entry);
+            <div class="actions compact">
+                @if (!present) { <button class="secondary" disabled="@busy" @onclick='() => SetAttendance(day, "present")'>Treinei</button> }
+                @if ((entry.Scheduled || entry.Extra) && !present && entry.Attendance != "missed")
+                {
+                    <button class="secondary" disabled="@busy" @onclick='() => SetAttendance(day, "missed")'>Faltei</button>
+                }
+                @if (entry.Attendance != "") { <button class="subtle" disabled="@busy" @onclick='() => SetAttendance(day, "")'>Limpar registro manual</button> }
+            </div>
+        }
+    </div>;
+
+    private RenderFragment Notes() => @<div>
+        @Heading("Observação do treino", NiceDate(date))
+        <section class="card form workout-notes">
+            <label class="field">Observação<textarea @bind="workoutNotes" maxlength="@Training.NotesLimit" rows="5"></textarea></label>
+            <div class="actions compact">
+                <button class="primary" @onclick="SaveNotes" disabled="@busy">Salvar observação</button>
+                <button class="secondary" @onclick="Back" disabled="@busy">Cancelar</button>
+            </div>
+        </section>
     </div>;
 
     private RenderFragment Calendar() => @<div>
@@ -657,35 +741,49 @@ else
                             aria-pressed="@(form.Days.Contains(i) ? "true" : "false")" @onclick="() => ToggleDay(day)">@Training.DayShort[i]</button>
                 }
             </div>
-            <label class="field">Divisão da semana<select aria-label="Divisão da semana" @bind="form.Split">@Options(Training.SplitModes)</select></label>
+            @PickOptions("Divisão da semana", Training.SplitModes, form.Split, value => form.Split = value)
             @if (form.Split == "groups")
             {
+                <p class="plain-note">Marque as regiões que quer treinar ou deixe o GymZ sugerir com base no seu perfil.</p>
                 @foreach (int day in form.Days)
                 {
-                    <label class="field">@Training.DayNames[day]<select aria-label="@Training.DayNames[day]" @bind="form.DayThemes[day]"><option value="">Sugestão do GymZ</option>@Options(Training.DayThemes)</select></label>
+                    var routine = form.DayRoutines[day];
+                    <div class="day-routine" @key="day">
+                        <div class="choice-group" role="group" aria-label="@Training.DayNames[day]">
+                            <span class="field">@Training.DayNames[day]</span>
+                            <div class="muscle-picks">
+                                <button class="chip @(!routine.Manual ? "selected" : "")" aria-pressed="@(!routine.Manual ? "true" : "false")"
+                                        @onclick="() => routine.Manual = false">Sugestão do GymZ</button>
+                                <button class="chip @(routine.Manual ? "selected" : "")" aria-pressed="@(routine.Manual ? "true" : "false")"
+                                        @onclick="() => OpenProfileRegions(day)">Escolher regiões manualmente</button>
+                            </div>
+                        </div>
+                        @if (routine.Manual)
+                        {
+                            <p class="plain-note">@string.Join(", ", routine.Groups.Select(group => Catalog.Names[group]))</p>
+                        }
+                    </div>
                 }
             }
             else if (form.Split == "auto") { <p class="plain-note">O plano considera a quantidade de dias e o intervalo entre eles.</p> }
         </section>
         <section class="card form">
             <h2>Personalização do plano</h2>
-            <label class="field">Objetivo<select aria-label="Objetivo" @bind="form.Goal">
-                @if (training.NeedsSetup) { <option value="">Escolha seu objetivo</option> }
-                @Options(Catalog.Goals)
-            </select></label>
+            @PickOptions("Objetivo", Catalog.Goals, form.Goal, value => form.Goal = value)
             <label class="field">Região prioritária<select aria-label="Região prioritária" @bind="form.Focus">@Options(Catalog.FocusOptions)@Options(Catalog.Groups.Select(g => KeyValuePair.Create(g,Catalog.Names[g])))</select></label>
             @if (form.Focus != "")
             {
-                <label class="field">Intensidade da prioridade<select aria-label="Intensidade da prioridade" @bind="form.FocusMode">@Options(Catalog.FocusModes)</select></label>
+                @PickOptions("Intensidade da prioridade", Catalog.FocusModes, form.FocusMode, value => form.FocusMode = value)
             }
-            <label class="field">Equipamento de musculação<select aria-label="Equipamento de musculação" @bind="form.Gear">@Options(Catalog.ProfileGear)</select></label>
-            <label class="field">Equipamento de cardio<select aria-label="Equipamento de cardio" @bind="form.Cardio">@Options(Catalog.ProfileCardio)</select></label>
-            <div class="field-pair">
-                <label class="field">Experiência<select aria-label="Experiência" @bind="form.Level"><option value="0">Iniciante</option><option value="1">Intermediário / avançado</option></select></label>
-                <label class="field">Tempo por treino<select aria-label="Tempo por treino" @bind="form.Minutes">
-                    @foreach (int value in new[] { 25,30,45,60,75 }.Append(form.Minutes).Distinct().OrderBy(n => n)) { <option value="@value">@value min</option> }
-                </select></label>
-            </div>
+            @PickOptions("Equipamento de musculação", Catalog.ProfileGear, form.Gear, value => form.Gear = value)
+            @if (form.Gear == "machines-dumbbell")
+            {
+                <p class="plain-note">Essa opção deixa de fora elásticos, exercícios no solo e agachamentos sem máquina.</p>
+            }
+            @PickOptions("Equipamento de cardio", Catalog.ProfileCardio, form.Cardio, value => form.Cardio = value)
+            @PickOptions("Experiência", ExperienceOptions, form.Level.ToString(), value => form.Level = int.Parse(value))
+            @PickOptions("Tempo por treino", new[] { 25, 30, 45, 60, 75, form.Minutes }.Distinct().OrderBy(value => value)
+                .Select(value => KeyValuePair.Create(value.ToString(), value + " min")), form.Minutes.ToString(), value => form.Minutes = int.Parse(value))
             <p class="plain-note">@(Training.WantsAutoCardio(form) ? "O plano inclui cardio nos dias adequados ao objetivo." : "Você pode adicionar cardio manualmente em Treinos.")</p>
         </section>
         <button class="primary full" @onclick="SaveProfile" disabled="@busy">@(training.NeedsSetup ? "Montar meu plano" : "Salvar perfil e atualizar plano")</button>
@@ -708,6 +806,39 @@ else
                 }
             </section>
         }
+    </div>;
+
+    private RenderFragment PickOptions(string label, IEnumerable<KeyValuePair<string,string>> options, string value, Action<string> choose) => @<div class="choice-group" role="group" aria-label="@label">
+        <span class="field">@label</span>
+        <div class="muscle-picks">
+            @foreach (var option in options)
+            {
+                bool selected = option.Key == value;
+                <button type="button" class="chip @(selected ? "selected" : "")" data-choice="@option.Key"
+                        aria-pressed="@(selected ? "true" : "false")" @onclick="() => choose(option.Key)">@option.Value</button>
+            }
+        </div>
+    </div>;
+
+    private RenderFragment RegionPicker() => @<div>
+        @Heading("Escolher regiões", profileRegionDay is { } day ? Training.DayNames[day] : NiceDate(date))
+        <section class="card form">
+            <div class="muscle-picks" role="group" aria-label="Regiões do treino">
+                @foreach (string group in Catalog.Groups)
+                {
+                    bool picked = regionDraft.Contains(group);
+                    <button class="chip @(picked ? "selected" : "")" aria-pressed="@(picked ? "true" : "false")"
+                            @onclick="() => ToggleRegion(group)">
+                        @if (picked) { <span aria-hidden="true">✓ </span> }
+                        @Catalog.Names[group]
+                    </button>
+                }
+            </div>
+            <div class="actions compact">
+                <button class="primary" @onclick="ConfirmRegions" disabled="@(busy || regionDraft.Count == 0)">Confirmar regiões</button>
+                <button class="secondary" @onclick="Back" disabled="@busy">Cancelar</button>
+            </div>
+        </section>
     </div>;
 
     private RenderFragment Options(IEnumerable<KeyValuePair<string,string>> entries) => @<text>
@@ -768,7 +899,7 @@ else
             <p class="@(offlineReady ? "positive" : "")">@(offlineReady ? "Conteúdo pronto para uso offline." : "A primeira abertura em uma página HTTPS prepara os arquivos para uso offline.")</p>
             <button class="subtle" @onclick='() => JS.InvokeVoidAsync("gymz.keepData").AsTask()'>Pedir armazenamento persistente</button>
         </section>
-        <details><summary>Sobre e créditos</summary><p>GymZ móvel · Dados neste aparelho.</p>
+        <details><summary>Sobre e créditos</summary><p>Versão @BuildInfo.Version · Dados neste aparelho.</p>
             <p><a href="exercise-art/Attribution.txt" target="_blank" rel="noreferrer">Créditos das ilustrações</a> · <a href="exercise-art/LICENSE.txt" target="_blank" rel="noreferrer">Licença CC BY-SA 4.0</a></p>
         </details>
     </div>;
@@ -902,33 +1033,24 @@ else
 
     private RenderFragment EditList() => @<div>
         @{
-            var entry = training.Get(date);
-            var original = editing < 0 ? null : Catalog.ById[entry.Items[editing].Id];
+            var original = editOriginalId == null ? null : Catalog.ById[editOriginalId];
             var options = EditChoices().ToList();
-            bool quickChoices = original != null && editGroup == "same" && editGear == "" && editQuery == "";
-            var ranked = quickChoices ? options.Where(choice => Training.Equivalent(original, choice)).Take(3).ToList() : new List<Exercise>();
-            bool exact = ranked.Count > 0;
-            if (quickChoices && !exact) ranked = options.Take(3).ToList();
+            var recommended = original == null ? null : options.FirstOrDefault(choice => choice.Group == original.Group);
         }
         @Heading(original == null ? "Adicionar exercício" : "Trocar exercício", original?.Name)
+        @if (date > Today) { <p class="plain-note">@NiceDate(date)</p> }
         @if (original != null)
         {
-            <div class="swap-quick">
-                <button class="secondary @(editMode == "temporary" ? "selected" : "")" aria-pressed="@(editMode == "temporary" ? "true" : "false")"
-                        @onclick='() => editMode = editMode == "temporary" ? "learn" : "temporary"'>Aparelho ocupado</button>
-                @if (editMode == "temporary") { <p role="status">A próxima troca vale só para o treino de hoje.</p> }
-            </div>
-            @if (ranked.Count > 0)
+            @if (date == Today)
             {
-                <section class="swap-suggestions">
-                    <h2>@(exact ? "Exercícios equivalentes" : "Alternativas para a mesma região")</h2>
-                    @foreach (var choice in ranked)
-                    {
-                        @SwapChoice(choice, original)
-                    }
-                    <button class="primary" @onclick="() => Edit(ranked[0])" disabled="@busy">Trocar automaticamente</button>
-                </section>
+                <div class="swap-quick">
+                    <button class="secondary @(editMode == "temporary" ? "selected" : "")" aria-pressed="@(editMode == "temporary" ? "true" : "false")"
+                            @onclick='() => editMode = editMode == "temporary" ? "learn" : "temporary"'>Aparelho ocupado</button>
+                    @if (editMode == "temporary") { <p role="status">A próxima troca vale só para o treino de hoje.</p> }
+                </div>
             }
+            else if (editMode == "temporary") { <p class="plain-note">A troca vale só para esta ficha.</p> }
+            @PickOptions("Mostrar", Training.SwapScopes, swapScope, SetSwapScope)
         }
         <details class="swap-filters" open="@(original == null)">
             <summary>@(original == null ? "Filtros de exercícios" : "Buscar, filtrar ou mudar a preferência")</summary>
@@ -936,18 +1058,13 @@ else
             <label class="field">Buscar<input type="search" @bind="editQuery" @bind:event="oninput" placeholder="Nome do exercício"></label>
             <div class="field-pair">
                 <label class="field">Região<select aria-label="Região" @bind="editGroup">
-                    @if (original != null) { <option value="same">Equivalentes</option> }
-                    <option value="">Todas</option>@Options(Catalog.Names)
+                    <option value="">Todas as regiões</option>@Options(Catalog.Names)
                 </select></label>
                 <label class="field">Equipamento<select aria-label="Equipamento alternativo" @bind="editGear"><option value="">Todos</option>@Options(Catalog.GearNames)</select></label>
             </div>
             @if (original != null)
             {
-                <label class="field">Sobre esta troca<select aria-label="Sobre esta troca" @bind="editMode">
-                    <option value="learn">Usar nas sugestões futuras</option>
-                    <option value="temporary">Trocar só neste treino</option>
-                    <option value="avoid">Evitar o exercício original</option>
-                </select></label>
+                @PickOptions("Sobre esta troca", SwapModeOptions, editMode, value => editMode = value)
                 <div class="actions compact">
                     <button class="subtle" @onclick="Remove">Retirar da lista</button>
                 </div>
@@ -955,13 +1072,17 @@ else
         </section>
         </details>
         @if (options.Count == 0) { <p class="callout">Nenhum exercício disponível com estes filtros.</p> }
-        @if (options.Any(choice => !ranked.Contains(choice)))
+        @foreach (var region in options.GroupBy(choice => choice.Group))
         {
-            @if (ranked.Count > 0) { <h2>Outras opções</h2> }
-            @foreach (var choice in options.Where(choice => !ranked.Contains(choice)))
-            {
-                @SwapChoice(choice, original)
-            }
+            bool sameRegion = original != null && region.Key == original.Group;
+            <section class="swap-region" data-region="@region.Key">
+                <h2>@(sameRegion ? "Mesma região · " + Catalog.Names[region.Key] : Catalog.Names[region.Key])</h2>
+                @foreach (var choice in region) { @SwapChoice(choice, original) }
+                @if (sameRegion && recommended != null)
+                {
+                    <button class="secondary" @onclick="() => Edit(recommended)" disabled="@busy">Trocar automaticamente</button>
+                }
+            </section>
         }
     </div>;
 

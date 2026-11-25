@@ -14,6 +14,20 @@
     const two = (value) => String(value).padStart(2, '0');
     return [date.getFullYear(), two(date.getMonth() + 1), two(date.getDate())].join('-');
   };
+  const weekStart = () => {
+    const date = new Date();
+    date.setDate(date.getDate() - (date.getDay() + 6) % 7);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const currentDrafts = value => {
+    const byDate = value?.day ? { [value.day]: value.items } : value ?? {};
+    const first = weekStart();
+    const last = today();
+    return Object.fromEntries(Object.entries(byDate).filter(([date]) => date >= first && date <= last));
+  };
   const state = () => app?.invokeMethodAsync('DeviceState', today(), !!navigator.serviceWorker?.controller, !!installPrompt);
   const database = () => connection ??= new Promise((resolve, reject) => {
     const request = indexedDB.open('gymz', 1);
@@ -62,8 +76,10 @@
     }
   });
   const moveFocus = (id, reset = false) => requestAnimationFrame(() => {
+    if (reset && document.activeElement?.matches('input, textarea, select')) document.activeElement.blur();
     const target = id && document.getElementById(id);
     if (target) {
+      if (!reset && target.contains(document.activeElement)) return;
       target.scrollIntoView({ block: 'center' });
       target.focus({ preventScroll: true });
     } else if (reset) {
@@ -90,9 +106,10 @@
         else if (clearDraft) {
           const request = store.get('drafts');
           request.onsuccess = () => {
-            const drafts = request.result;
-            if (drafts?.day !== day) return;
-            delete drafts.items[clearDraft];
+            const drafts = currentDrafts(request.result);
+            if (!drafts[day]) return;
+            delete drafts[day][clearDraft];
+            if (!Object.keys(drafts[day]).length) delete drafts[day];
             store.put(drafts, 'drafts');
           };
         }
@@ -100,16 +117,18 @@
       });
     },
     async draft(day, id) {
-      const drafts = await get('drafts');
-      return drafts?.day === day ? drafts.items[id] ?? null : null;
+      const drafts = currentDrafts(await get('drafts'));
+      return drafts[day]?.[id] ?? null;
     },
     writeDraft(day, id, draft) {
       return access('drafts', 'readwrite', (current, store) => {
-        if (current?.day > day) return;
-        const data = current?.day === day ? current : { day, items: {} };
-        if (draft) data.items[id] = draft;
-        else delete data.items[id];
-        store.put(data, 'drafts');
+        if (day < weekStart() || day > today()) return;
+        const byDate = currentDrafts(current);
+        const items = byDate[day] ??= {};
+        if (draft) items[id] = draft;
+        else delete items[id];
+        if (!Object.keys(items).length) delete byDate[day];
+        store.put(byDate, 'drafts');
       });
     },
     timer: () => localStorage.getItem('gymz-rest'),

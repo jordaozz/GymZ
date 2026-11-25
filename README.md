@@ -7,7 +7,7 @@ Planejador e diário de treinos para **Windows, Android e iPhone**. O GymZ trans
   <a href="https://github.com/jordaozz/GymZ/releases/latest/download/GymZ-Mobile.zip"><img src="docs/screenshots/download-mobile.png" width="172" alt="Baixar pacote GymZ para Android e iPhone"></a>
 </p>
 
-[Guia de uso](docs/uso-e-referencias.md) · [Versão para celular](mobile/README.md) · [Todas as versões](https://github.com/jordaozz/GymZ/releases)
+[Abrir e instalar no celular](https://jordaozz.github.io/GymZ/) · [Guia de uso](docs/uso-e-referencias.md) · [Todas as versões](https://github.com/jordaozz/GymZ/releases)
 
 | Mapa muscular no Windows | Treino e timer no celular |
 | --- | --- |
@@ -17,7 +17,7 @@ Planejador e diário de treinos para **Windows, Android e iPhone**. O GymZ trans
 
 - **Planeja a semana.** Escolha a divisão por músculos, a região prioritária e os equipamentos. O plano ajusta o volume, sugere cardio conforme o objetivo e usa a cobertura da semana para orientar os próximos treinos.
 - **Acompanha a execução.** Registre séries, cargas, repetições e esforço. Consulte 78 exercícios ilustrados e opções equivalentes para trocar, inclusive quando um aparelho está ocupado.
-- **Registra presença e evolução.** Veja faltas, reposições, sessões extras e um relatório de músculos trabalhados. Exporte o relatório semanal em CSV.
+- **Registra presença e evolução.** Use **Presença** para marcar dias, séries e observações da semana atual, desde o primeiro acesso. Ao começar uma nova semana, a anterior fica disponível para consulta. Veja faltas, reposições, sessões extras e a cobertura muscular no relatório semanal, com exportação em CSV.
 - **Facilita o uso no celular.** Registre séries no cartão, recupere rascunhos, volte ao exercício de origem e acompanhe o timer de descanso enquanto navega.
 
 ## Instalação
@@ -25,7 +25,9 @@ Planejador e diário de treinos para **Windows, Android e iPhone**. O GymZ trans
 | Plataforma | Como abrir |
 | --- | --- |
 | Windows 10 ou 11 | Baixe o pacote para Windows, extraia a pasta e abra `GymZ.exe`. |
-| Android e iPhone | Abra a versão web em um endereço HTTPS e adicione à tela de início. A primeira abertura prepara os arquivos para uso offline. Consulte o [guia da versão móvel](mobile/README.md). |
+| Android e iPhone | Abra o GymZ no Chrome (Android) ou no Safari (iPhone) e adicione à tela de início. A primeira abertura prepara os arquivos para uso offline. [Abrir GymZ](https://jordaozz.github.io/GymZ/) · [Guia de instalação](mobile/README.md) |
+
+O botão **Baixar pacote mobile** fornece os arquivos para hospedar a mesma PWA em um endereço HTTPS.
 
 Os dados ficam no armazenamento local do aplicativo. Em **Configurações**, exporte ou restaure o arquivo `gymz-backup.json` para transferir o histórico entre Windows e celular. O app oferece tema claro e escuro, cores de destaque, ajuste de texto e alto contraste.
 
@@ -57,6 +59,6 @@ node mobile/serve.mjs work/mobile-build/wwwroot
 
 ## Créditos
 
-As ilustrações selecionadas do Workout Guide mantêm a autoria de Bryl Lim e Everkinetic e a licença CC BY-SA 4.0. Os créditos por imagem estão no catálogo de atribuições. [Atribuições](assets/exercise-art/Attribution.txt) · [Texto da licença](assets/exercise-art/LICENSE.txt)
+As ilustrações selecionadas do Workout Guide de Bryl Lim e Everkinetic mantêm os créditos e a licença CC BY-SA 4.0. O GymZ distribui os desenhos em PNG com fundo transparente e adapta enquadramento e cores na interface. As ilustrações complementares do GymZ estão identificadas no mesmo catálogo. [Atribuições por exercício](assets/exercise-art/Attribution.txt) · [Texto da licença das ilustrações](assets/exercise-art/LICENSE.txt)
 
 O [guia de uso](docs/uso-e-referencias.md) reúne as fontes de técnica de exercício, planejamento e catálogo de máquinas. Os pacotes da versão móvel incluem os avisos de terceiros do runtime .NET e do Blazor.

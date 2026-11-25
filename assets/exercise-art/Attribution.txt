@@ -1,3 +1,8 @@
+# Ilustrações do Workout Guide 1.0.0 de Bryl Lim e Everkinetic (CC BY-SA 4.0).
+# https://github.com/bryllim/workout-guide/blob/main/ATTRIBUTION.md
+# https://creativecommons.org/licenses/by-sa/4.0/
+# O Workout Guide normalizou os desenhos em PNG transparente e redesenhou poses da Everkinetic.
+# O GymZ mantém os quadros de pose, com ajustes de enquadramento e cor na apresentação.
 # id|slug no Workout Guide (vazio para arte GymZ)|arquivos de pose|fontes adicionais|legenda da pose 1|legenda da pose 2
 incline-db|incline-dumbbell-press|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0061-tension.svg
 cable-fly|cable-fly|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0048-tension.svg
