@@ -1,0 +1,84 @@
+# Ilustrações do Workout Guide 1.0.0 de Bryl Lim e Everkinetic (CC BY-SA 4.0).
+# https://github.com/bryllim/workout-guide/blob/main/ATTRIBUTION.md
+# https://creativecommons.org/licenses/by-sa/4.0/
+# O Workout Guide normalizou os desenhos em PNG transparente e redesenhou poses da Everkinetic.
+# O GymZ mantém os quadros de pose, com ajustes de enquadramento e cor na apresentação.
+# id|slug no Workout Guide (vazio para arte GymZ)|arquivos de pose|fontes adicionais|legenda da pose 1|legenda da pose 2
+incline-db|incline-dumbbell-press|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0061-tension.svg
+cable-fly|cable-fly|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0048-tension.svg
+chest-machine|machine-chest-press|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0066-tension.svg
+pushup|push-up|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0077-tension.svg
+bench|bench-press|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0042-tension.svg
+pec-deck|pec-deck|1,3|
+pushdown|rope-tricep-pushdown|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0206-tension.svg
+overhead-db|dumbbell-overhead-tricep-extension|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0194-tension.svg
+skull|dumbbell-skull-crusher|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0181-tension.svg
+pulldown|lat-pulldown|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0093-tension.svg
+seated-row|seated-row|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0025-tension.svg
+db-row|one-arm-dumbbell-row|1,3|
+band-row|banded-row|1,3|
+pullup|pull-up|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0087-tension.svg
+chest-row|chest-supported-row|1,3|
+face-pull|face-pull|1,3|
+lateral|lateral-raise|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0018-tension.svg
+shoulder-press|seated-dumbbell-press|1,3|
+machine-shoulder|machine-shoulder-press|1,3|
+reverse-fly|bent-over-rear-delt-raise|1,3|
+db-curl|bicep-curl|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0224-tension.svg
+hammer|hammer-curl|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0227-tension.svg
+cable-curl|cable-curl|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0212-tension.svg
+hip-thrust|hip-thrust|1,3|
+bridge|glute-bridge|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0109-tension.svg
+db-bridge|dumbbell-glute-bridge|1,3|
+kickback|cable-kickback|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0112-tension.svg
+abductor|hip-abduction-machine|1,3|
+side-leg|side-lying-hip-abduction|1,3|
+leg-press|leg-press|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0127-tension.svg
+goblet|goblet-squat|1,3|
+leg-extension|leg-extension|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0142-tension.svg
+barbell-squat|squat|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0122-tension.svg
+rdl|dumbbell-romanian-deadlift|1,3|
+leg-curl|lying-leg-curl|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0117-tension.svg
+seated-curl|seated-leg-curl|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0119-tension.svg
+standing-calf|calf-raise|1,3|
+machine-calf|seated-calf-raise|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0279-tension.svg
+adductor-machine|hip-adduction-machine|1,3|
+sumo|dumbbell-sumo-squat|1,3|
+dead-bug|dead-bug|1,3|
+plank|plank|1|
+side-plank|side-plank|1|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0113-tension.svg
+pallof|pallof-press|1,3|
+band-pallof|banded-pallof-press|1,3|
+elliptical|elliptical|1,3|
+treadmill|walking|1,3|
+cable-lateral|cable-lateral-raise|1,3|
+hack-squat|hack-squat|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0123-tension.svg
+step-up|step-up|1,3|1:Everkinetic https://github.com/everkinetic/data/blob/main/dist/svg/0137-tension.svg
+floor-press||1,2||Halteres perto do peito|Empurre para cima
+band-press||1,2||Mãos próximas ao peito|Estenda os braços à frente
+close-pushup||1,2||Mãos sob os ombros|Desça com os braços perto do tronco
+band-triceps||1,2||Cotovelos junto ao tronco|Estenda os cotovelos
+prone-row||1,2||Alcance à frente|Traga os cotovelos em W
+wall-slide||1,2||Antebraços na parede|Deslize para cima
+band-lateral||1,2||Pise na faixa|Eleve o braço ao lado
+band-curl||1,2||Braços ao lado do corpo|Dobre os cotovelos
+self-curl||1,2||Use a outra mão como resistência|Flexione o cotovelo
+suitcase||1||Segure o halter com o tronco ereto
+wrist-extension||1,2||Apoie o antebraço|Eleve o dorso da mão
+band-wrist||1,2||Antebraço apoiado, faixa presa|Estenda o punho
+grip-towel||1||Aperte a toalha com o punho neutro
+band-walk||1,2||Faixa acima dos joelhos|Dê um passo lateral
+chair-squat||1,2||Fique à frente do assento|Sente com controle
+band-squat|banded-squat|3,1||Fique em pé sobre o elástico|Dobre quadris e joelhos
+split-squat||1,2||Um pé à frente do outro|Flexione os dois joelhos
+heel-dig||1,2||Calcanhares apoiados|Eleve o quadril
+band-rdl||1,2||Pés no elástico|Conduza o quadril para trás
+db-calf||1,2||Comece com o calcanhar baixo|Eleve o calcanhar
+band-calf||1,2||Faixa no antepé|Empurre a ponta do pé
+side-adduction||1,2||Apoie a perna de cima|Eleve a perna de baixo
+band-adduction||1,2||Comece com a perna ao lado|Aproxime a perna da linha média
+cable-crunch||1,2||Ajoelhe com a corda junto à cabeça|Aproxime as costelas do quadril
+walk||1,2||Alterne os apoios|Deixe os braços acompanharem o passo
+bike|cycling|1,3||Apoie os pés nos pedais|Pedale mantendo o quadril firme
+leg-press-horizontal||1,2||Flexione com o quadril apoiado|Empurre com os pés inteiros
+standing-march||1,2||Eleve um pé sem saltar|Alterne o apoio
