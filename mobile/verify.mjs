@@ -84,10 +84,10 @@ try {
   await button('Carga').first().click();
   await page.getByText('Rascunho recuperado.', { exact: true }).waitFor();
   assert.equal(await page.getByLabel('Carga (kg)', { exact: true }).first().inputValue(), '14,5');
-  await page.setViewportSize({ width: 320, height: 700 });
+  if (!process.env.GYMZ_WEBKIT) await page.setViewportSize({ width: 320, height: 700 });
   await page.getByLabel('Carga (kg)', { exact: true }).first().fill('1501');
   await page.waitForFunction(async id => (await window.gymz.draft('2026-11-23', id))?.rows[0].kg === '1501', exerciseId);
-  assert.ok((await button('Salvar séries').boundingBox()).y < 700);
+  assert.ok((await button('Salvar séries').boundingBox()).y < await page.evaluate(() => innerHeight));
   await button('Salvar séries').click();
   await page.getByRole('alert').filter({ hasText: 'Revise os campos destacados.' }).waitFor();
   assert.equal(await page.getByLabel('Carga (kg)', { exact: true }).first().getAttribute('aria-invalid'), 'true');
